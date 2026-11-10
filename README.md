@@ -18,6 +18,7 @@ The application performs no LinkedIn, X, email, or cloud writes. Publishing is h
 - Approval, rejection, editing, and local export dashboard
 - Three-part approval checklist: understanding, claim review, and exact voice confirmation
 - Queue protection: scheduled runs never overwrite pending edits and stop adding drafts at the configured review limit
+- Quarantine rules for instruction injection, credential exfiltration, tool execution, and unauthorized external-action text found in sources
 - SQLite audit trail and run history
 - Local 12-hour scheduler and optional Windows Scheduled Task
 - Hard guard preventing publishing when external writes are disabled

@@ -246,15 +246,16 @@ class Database:
         breakdown: dict[str, float],
         topic: str,
         industry: str,
+        status: str = "scored",
     ) -> None:
         with self.connect() as connection:
             connection.execute(
                 """
                 UPDATE research_items
-                SET score=?, score_json=?, topic=?, industry=?, status='scored', updated_at=?
+                SET score=?, score_json=?, topic=?, industry=?, status=?, updated_at=?
                 WHERE id=?
                 """,
-                (score, json.dumps(breakdown), topic, industry, utc_now(), item_id),
+                (score, json.dumps(breakdown), topic, industry, status, utc_now(), item_id),
             )
 
     @staticmethod
@@ -285,12 +286,20 @@ class Database:
             ).fetchone()
         return self._item_from_row(row) if row else None
 
-    def list_items(self, *, limit: int = 50, minimum_score: float = 0) -> list[ResearchItem]:
+    def list_items(
+        self,
+        *,
+        limit: int = 50,
+        minimum_score: float = 0,
+        include_quarantined: bool = False,
+    ) -> list[ResearchItem]:
+        status_clause = "" if include_quarantined else "AND status != 'quarantined'"
         with self.connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT * FROM research_items
                 WHERE score >= ?
+                {status_clause}
                 ORDER BY score DESC, published_at DESC
                 LIMIT ?
                 """,

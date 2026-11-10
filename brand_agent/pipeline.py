@@ -9,6 +9,7 @@ from .db import Database
 from .drafting import choose_provider, create_draft
 from .research import build_brief, build_mission, extract_claims
 from .scoring import classify_industry, classify_topic, score_item
+from .safety import scan_untrusted_text
 from .sources import build_sources, discover_all
 
 
@@ -44,6 +45,12 @@ class ResearchPipeline:
 
             for item in discovery.items:
                 score, breakdown = score_item(item, self.settings.raw["scoring"])
+                safety_findings = scan_untrusted_text(item.title, item.abstract)
+                if safety_findings:
+                    score = 0
+                    breakdown["safety_quarantine"] = 100.0
+                    item.raw["safety_findings"] = [finding.rule for finding in safety_findings]
+                    item.status = "quarantined"
                 item.score = score
                 item.score_breakdown = breakdown
                 combined_text = f"{item.title} {item.abstract}".lower()
@@ -58,6 +65,7 @@ class ResearchPipeline:
                     breakdown=breakdown,
                     topic=item.topic,
                     industry=item.industry,
+                    status=item.status if safety_findings else "scored",
                 )
 
             # Re-score retained items when ranking rules evolve. This also prevents
@@ -65,12 +73,17 @@ class ResearchPipeline:
             for stored_item in self.database.list_items(limit=10_000):
                 score, breakdown = score_item(stored_item, self.settings.raw["scoring"])
                 combined_text = f"{stored_item.title} {stored_item.abstract}".lower()
+                safety_findings = scan_untrusted_text(stored_item.title, stored_item.abstract)
+                if safety_findings:
+                    score = 0
+                    breakdown["safety_quarantine"] = 100.0
                 self.database.update_item_analysis(
                     stored_item.id,
                     score=score,
                     breakdown=breakdown,
                     topic=classify_topic(combined_text),
                     industry=classify_industry(combined_text),
+                    status="quarantined" if safety_findings else "scored",
                 )
 
             top_limit = int(self.settings.raw["research"].get("top_items_per_run", 5))
