@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Frontier Brand Agent</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">LOCAL RESEARCH OPERATING SYSTEM</p>
+        <h1>Frontier Brand Agent</h1>
+        <p class="subtitle">Cloud × AI research → evidence → briefs → content → human approval.</p>
+      </div>
+      <form method="post" action="/pipeline/run">
+        <button class="button primary" type="submit">Run research cycle</button>
+      </form>
+    </header>
+
+    <section class="safety-banner">
+      <strong>Publishing is {{ "enabled" if publish_enabled else "hard-disabled" }}.</strong>
+      No LinkedIn, X, cloud, or email action can occur from this application. Approval only enables a local export.
+    </section>
+
+    <section class="metrics">
+      <article><span>{{ counts.items }}</span><small>research items</small></article>
+      <article><span>{{ counts.briefs }}</span><small>evidence briefs</small></article>
+      <article><span>{{ counts.pending }}</span><small>awaiting approval</small></article>
+      <article><span>{{ counts.approved }}</span><small>approved / exported</small></article>
+      <article><span>{{ counts.missions }}</span><small>growth missions</small></article>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">PRIVATE GROWTH LOOP</p>
+      <h2>Turn research into demonstrated capability</h2>
+      {% if missions %}
+      <div class="mission-list">
+        {% for mission in missions %}
+        <article class="mission-card">
+          <div>
+            <div class="card-meta">
+              <span class="status {{ mission.status }}">{{ mission.status }}</span>
+              {% if mission.due_at %}<span>due {{ mission.due_at[:10] }}</span>{% endif %}
+            </div>
+            <h3>{{ mission.title }}</h3>
+            <p>{{ mission.objective }}</p>
+            <small>Evidence: {{ mission.evidence_required }}</small>
+          </div>
+          <div class="mission-actions">
+            {% if mission.status == 'proposed' %}
+            <form method="post" action="/missions/{{ mission.id }}/activate">
+              <button class="button" type="submit">Start mission</button>
+            </form>
+            {% else %}
+            <form method="post" action="/missions/{{ mission.id }}/complete">
+              <textarea name="reflection" rows="3" minlength="40" required placeholder="Explain the idea in your own words, then add a disagreement, question, or experiment."></textarea>
+              <button class="button approve" type="submit">Complete with evidence</button>
+            </form>
+            {% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="empty">Missions appear alongside selected research topics.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">APPROVAL QUEUE</p>
+          <h2>Drafts requiring your judgment</h2>
+        </div>
+      </div>
+      {% if drafts %}
+      <div class="draft-grid">
+        {% for draft in drafts %}
+        <a class="draft-card" href="/drafts/{{ draft.id }}">
+          <div class="card-meta">
+            <span class="badge {{ draft.platform }}">{{ draft.platform }}</span>
+            <span class="status {{ draft.status }}">{{ draft.status.replace('_', ' ') }}</span>
+          </div>
+          <h3>{{ draft.title }}</h3>
+          <p>{{ draft.body[:220] }}{% if draft.body|length > 220 %}…{% endif %}</p>
+          <small>Risk: {{ draft.risk_level }} · {{ draft.created_at[:16].replace('T', ' ') }} UTC</small>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="empty">No drafts yet. Run the first research cycle.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">RESEARCH RADAR</p>
+      <h2>Highest-value Cloud × AI signals</h2>
+      <div class="research-list">
+        {% for item in items %}
+        <article class="research-row">
+          <div class="score">{{ "%.0f"|format(item.score) }}</div>
+          <div>
+            <div class="card-meta">
+              <span class="badge">{{ item.topic.replace('_', ' ') }}</span>
+              <span>{{ item.publication_status.replace('_', ' ') }}</span>
+            </div>
+            <h3><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.title }}</a></h3>
+            <p>{{ item.abstract[:300] }}{% if item.abstract|length > 300 %}…{% endif %}</p>
+            <small>{{ item.source_name }} · {{ item.industry.replace('_', ' ') }}</small>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">RUN HISTORY</p>
+      <h2>Automation health</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Started</th><th>Status</th><th>Found</th><th>Briefs</th><th>Drafts</th></tr></thead>
+          <tbody>
+          {% for run in runs %}
+            <tr>
+              <td>{{ run.started_at[:19].replace('T', ' ') }} UTC</td>
+              <td>{{ run.status.replace('_', ' ') }}</td>
+              <td>{{ run.discovered_count }}</td>
+              <td>{{ run.brief_count }}</td>
+              <td>{{ run.draft_count }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+

@@ -1,0 +1,122 @@
+app:
+  name: Frontier Brand Agent
+  database: data/brand_agent.db
+  export_directory: exports
+  timezone: Asia/Kolkata
+  dashboard_host: 127.0.0.1
+  dashboard_port: 8765
+
+safety:
+  publish_enabled: false
+  require_approval: true
+  allow_external_writes: false
+  allowed_network_methods:
+    - GET
+    - HEAD
+  minimum_claim_confidence: 0.60
+
+research:
+  lookback_days: 45
+  items_per_query: 12
+  top_items_per_run: 5
+  request_timeout_seconds: 25
+  user_agent: FrontierBrandAgent/0.1 (local personal research assistant)
+  arxiv_queries:
+    - '(all:"artificial intelligence" OR all:"large language model") AND (all:cloud OR all:infrastructure OR all:production)'
+    - '(all:agent OR all:agentic) AND (all:SRE OR all:AIOps OR all:"cloud operations")'
+    - '(all:"model serving" OR all:inference) AND (all:cloud OR all:serverless OR all:distributed)'
+  openalex_queries:
+    - cloud AI production infrastructure
+    - AI agents cloud operations incident reliability
+    - large language model inference serving industry
+  rss_feeds:
+    - name: AWS Machine Learning Blog
+      url: https://aws.amazon.com/blogs/machine-learning/feed/
+      source_type: official_engineering
+    - name: Google Cloud Blog
+      url: https://cloudblog.withgoogle.com/rss/
+      source_type: official_engineering
+    - name: Microsoft Research
+      url: https://www.microsoft.com/en-us/research/feed/
+      source_type: official_research
+
+scoring:
+  weights:
+    relevance: 0.25
+    credibility: 0.20
+    industry_value: 0.20
+    novelty: 0.15
+    founder_value: 0.10
+    actionability: 0.10
+  required_intersection:
+    - ai
+    - cloud
+  preferred_terms:
+    ai:
+      - artificial intelligence
+      - machine learning
+      - large language model
+      - llm
+      - agent
+      - agentic
+      - inference
+      - foundation model
+    cloud:
+      - cloud
+      - distributed system
+      - infrastructure
+      - serverless
+      - kubernetes
+      - gpu
+      - accelerator
+      - model serving
+      - sre
+      - aiops
+    production:
+      - production
+      - deployed
+      - real-world
+      - industry
+      - enterprise
+      - operational
+      - reliability
+      - latency
+      - cost
+      - scale
+      - security
+    founder:
+      - market
+      - customer
+      - product
+      - business
+      - startup
+      - adoption
+      - productivity
+      - efficiency
+    actionability:
+      - open source
+      - github
+      - benchmark
+      - dataset
+      - implementation
+      - framework
+      - architecture
+      - case study
+
+drafting:
+  provider: auto
+  ollama_url: http://127.0.0.1:11434
+  ollama_model: qwen2.5:7b
+  platforms:
+    - linkedin
+    - x
+  include_source_links: true
+  linkedin_max_characters: 2600
+  x_max_characters: 270
+  max_pending_drafts: 10
+
+scheduler:
+  enabled: true
+  interval_hours: 12
+  run_on_start: true
+

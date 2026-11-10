@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ draft.title }} · Frontier Brand Agent</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell detail-shell">
+    <a class="back" href="/">← Back to dashboard</a>
+
+    <header class="detail-header">
+      <div class="card-meta">
+        <span class="badge {{ draft.platform }}">{{ draft.platform }}</span>
+        <span class="status {{ draft.status }}">{{ draft.status.replace('_', ' ') }}</span>
+        <span>risk: {{ draft.risk_level }}</span>
+      </div>
+      <h1>{{ draft.title }}</h1>
+      <p>{{ draft.rationale }}</p>
+    </header>
+
+    <section class="two-column">
+      <article class="panel compose-panel">
+        <p class="eyebrow">EXACT PUBLIC TEXT</p>
+        <h2>Edit and decide</h2>
+        <form method="post">
+          <textarea name="body" rows="25" spellcheck="true">{{ draft.body }}</textarea>
+          <fieldset class="approval-checklist">
+            <legend>Approval means all three are true</legend>
+            <label><input type="checkbox" name="understood" value="true" required> I understand the research argument and can discuss it.</label>
+            <label><input type="checkbox" name="checked_claims" value="true" required> I reviewed the claims, source status, and limitations.</label>
+            <label><input type="checkbox" name="represents_me" value="true" required> This exact text represents my current view and voice.</label>
+          </fieldset>
+          <div class="action-row">
+            <button class="button" formaction="/drafts/{{ draft.id }}/save">Save edit</button>
+            <button class="button approve" formaction="/drafts/{{ draft.id }}/approve">Approve exact text</button>
+          </div>
+        </form>
+        <form class="reject-form" method="post" action="/drafts/{{ draft.id }}/reject">
+          <input name="reason" value="Needs revision" aria-label="Rejection reason">
+          <button class="button reject" type="submit">Reject</button>
+        </form>
+        {% if draft.status in ['approved', 'exported'] %}
+        <form method="post" action="/drafts/{{ draft.id }}/export">
+          <button class="button primary" type="submit">Export locally as Markdown</button>
+        </form>
+        {% endif %}
+        <p class="guard-note">Approval does not publish. Publishing is {{ "enabled" if publish_enabled else "hard-disabled" }}.</p>
+      </article>
+
+      <aside>
+        <section class="panel evidence-panel">
+          <p class="eyebrow">SOURCE</p>
+          <h2><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.title }}</a></h2>
+          <dl>
+            <dt>Publisher/source</dt><dd>{{ item.source_name }}</dd>
+            <dt>Status</dt><dd>{{ item.publication_status.replace('_', ' ') }}</dd>
+            <dt>Relevance score</dt><dd>{{ "%.1f"|format(item.score) }}/100</dd>
+            <dt>Topic</dt><dd>{{ item.topic.replace('_', ' ') }}</dd>
+            <dt>Industry</dt><dd>{{ item.industry.replace('_', ' ') }}</dd>
+          </dl>
+        </section>
+
+        <section class="panel evidence-panel">
+          <p class="eyebrow">RESEARCH BRIEF</p>
+          <h3>Problem</h3><p>{{ brief.problem }}</p>
+          <h3>Contribution</h3><p>{{ brief.contribution }}</p>
+          <h3>Evidence</h3><p>{{ brief.evidence }}</p>
+          <h3>Limitations</h3><p>{{ brief.limitations }}</p>
+          <h3>Cloud implications</h3><p>{{ brief.cloud_implications }}</p>
+        </section>
+
+        <section class="panel evidence-panel">
+          <p class="eyebrow">CLAIM LEDGER</p>
+          {% for claim in claims %}
+          <div class="claim">
+            <p>{{ claim.claim_text }}</p>
+            <small>{{ claim.verification_status.replace('_', ' ') }} · confidence {{ "%.0f"|format(claim.confidence * 100) }}%</small>
+          </div>
+          {% endfor %}
+        </section>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>
+

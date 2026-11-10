@@ -1,0 +1,63 @@
+identity:
+  display_name: Anubhaw
+  archetype: The Quietly Ambitious Builder
+  current_role: Cloud and backend engineer working around AI infrastructure
+  positioning: >-
+    A technically grounded builder who explores Cloud x AI research, translates it
+    into practical industry understanding, and investigates how emerging ideas can
+    become reliable products and real-world impact.
+  identity_statement: >-
+    I am becoming the kind of person who remains calm under uncertainty,
+    understands difficult systems, consistently turns ambitious ideas into
+    results, and brings capable people together to create meaningful impact.
+
+voice:
+  qualities:
+    - quietly confident
+    - clear and educational
+    - technically grounded
+    - slightly bold when evidence supports it
+    - curious rather than performative
+  avoid:
+    - pretending to be an expert
+    - generic motivational language
+    - exaggerated certainty
+    - fabricated personal experience
+    - hype without evidence
+    - emotionally reactive language
+
+audience:
+  primary:
+    - technical founders
+    - potential technology clients
+    - builders and collaborators
+    - early-stage startup leaders
+  secondary:
+    - engineering leaders
+    - recruiters for high-value technical roles
+    - developers and researchers
+
+content:
+  pillars:
+    cloud_for_ai: 35
+    ai_for_cloud: 30
+    ai_in_industry: 25
+    long_term_frontier: 10
+  preferred_industries:
+    - enterprise software
+    - financial services
+    - healthcare
+    - manufacturing
+    - energy
+    - developer platforms
+  editorial_rule: >-
+    Prefer topics containing research evidence, production evidence, and a clear
+    industry problem. Clearly separate reported findings, interpretation, and
+    personal opinion.
+
+boundaries:
+  employer_details: confidential_unless_explicitly_approved
+  private_journals: not_available
+  failures_and_personal_stories: use_only_with_explicit_approval
+  controversial_topics: require_extra_review
+
