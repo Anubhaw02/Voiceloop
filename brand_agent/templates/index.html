@@ -17,7 +17,9 @@
       <div class="header-actions">
         <form method="post" action="/pipeline/run">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button primary" type="submit">Run research now</button>
+          <button class="button primary" type="submit" {% if research_running %}disabled{% endif %}>
+            {{ "Research running…" if research_running else "Run research now" }}
+          </button>
         </form>
         {% if user %}
         <form method="post" action="/auth/logout">
@@ -37,8 +39,25 @@
       {% endif %}
     </section>
 
+    {% if research_running or research_notice %}
+    <section class="safety-banner">
+      {% if research_running %}
+        <strong>Research is running in the background.</strong>
+        It usually takes 5–10 minutes. Refresh this page later; the run appears under Run history when finished.
+      {% elif research_notice == 'already_running' %}
+        <strong>A research run is already in progress.</strong>
+      {% else %}
+        <strong>Research run finished.</strong> See Run history below for the result.
+      {% endif %}
+      {% if counts.pending >= max_pending_drafts %}
+        <br>Your approval queue is full ({{ counts.pending }}/{{ max_pending_drafts }}), so research refreshes signals
+        but creates no new drafts until you approve or reject some.
+      {% endif %}
+    </section>
+    {% endif %}
+
     <section class="metrics">
-      <article><span>{{ counts.items }}</span><small>research items</small></article>
+      <article><span>{{ counts['items'] }}</span><small>research items</small></article>
       <article><span>{{ counts.briefs }}</span><small>evidence briefs</small></article>
       <article><span>{{ counts.pending }}</span><small>awaiting approval</small></article>
       <article><span>{{ counts.approved }}</span><small>approved / published</small></article>

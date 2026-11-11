@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import secrets
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -23,6 +25,7 @@ from .publishing import (
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
+LOGGER = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -30,6 +33,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     database = Database(settings.database_url)
     database.initialize()
     pipeline = ResearchPipeline(settings, database)
+    # A full research run takes minutes (live source fetches plus re-scoring),
+    # so it runs off the request thread. The lock prevents overlapping runs.
+    research_lock = threading.Lock()
+
+    def run_research_in_background() -> None:
+        try:
+            pipeline.run()
+        except Exception:
+            LOGGER.exception("Background research run failed")
+        finally:
+            research_lock.release()
 
     app = FastAPI(title=settings.raw["app"]["name"], docs_url=None if settings.is_production else "/api/docs")
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
@@ -125,7 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return RedirectResponse(url="/auth/linkedin/login", status_code=303)
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(request: Request):
+    def dashboard(request: Request, research: str = ""):
         redirect = require_user(request)
         if redirect:
             return redirect
@@ -142,6 +156,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "linkedin_connected": linkedin_connected(),
                 "user": request.session.get("user"),
                 "csrf_token": csrf_for(request),
+                "research_running": research_lock.locked(),
+                "research_notice": research if research in {"started", "already_running"} else "",
+                "max_pending_drafts": int(settings.raw["drafting"].get("max_pending_drafts", 10)),
             },
         )
 
@@ -151,8 +168,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if redirect:
             return redirect
         require_csrf(request, csrf_token)
-        pipeline.run()
-        return RedirectResponse(url="/", status_code=303)
+        if not research_lock.acquire(blocking=False):
+            return RedirectResponse(url="/?research=already_running", status_code=303)
+        try:
+            threading.Thread(target=run_research_in_background, name="research-run", daemon=True).start()
+        except Exception:
+            research_lock.release()
+            raise
+        return RedirectResponse(url="/?research=started", status_code=303)
 
     @app.get("/drafts/{draft_id}", response_class=HTMLResponse)
     def draft_detail(request: Request, draft_id: str):
