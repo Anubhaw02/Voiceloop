@@ -178,6 +178,7 @@ def test_gemini_picks_newest_stable_flash_model(monkeypatch):
 
 
 def test_build_router_requires_a_key(monkeypatch):
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)  # CI sets this itself
     assert build_router({}) is None
     monkeypatch.setenv("GEMINI_API_KEY", "test")
     router = build_router({})
