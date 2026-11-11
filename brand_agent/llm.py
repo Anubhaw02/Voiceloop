@@ -38,6 +38,9 @@ def _parse_json(text: str) -> dict[str, Any]:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         raise LLMError(f"model returned invalid JSON: {exc.msg}") from exc
+    # Some models wrap the requested object in a one-element list.
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        data = data[0]
     if not isinstance(data, dict):
         raise LLMError("model returned JSON that is not an object")
     return data
