@@ -58,7 +58,9 @@ class GeminiClient:
     max_document_chars = 120_000
     _excluded = ("image", "tts", "audio", "live", "embedding", "vision", "learnlm", "robotics", "computer-use")
 
-    def __init__(self, api_key: str, *, preferred_model: str = "", min_interval_seconds: float = 6.0, timeout: float = 180):
+    retryable = {429, 500, 503}
+
+    def __init__(self, api_key: str, *, preferred_model: str = "", min_interval_seconds: float = 6.0, timeout: float = 150):
         self._headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
         self.preferred_model = preferred_model.strip().removeprefix("models/")
         self.min_interval_seconds = min_interval_seconds
@@ -125,15 +127,23 @@ class GeminiClient:
                 except httpx.HTTPError as exc:
                     failures.append(f"{model}: {type(exc).__name__}")
                     break
-                if response.status_code == 429 and attempt == 0:
-                    delay = min(60.0, float(response.headers.get("retry-after", "20") or 20))
-                    LOGGER.warning("Gemini %s rate-limited; retrying in %.0fs", model, delay)
+                if response.status_code in self.retryable and attempt == 0:
+                    default = "20" if response.status_code == 429 else "15"
+                    try:
+                        delay = min(60.0, float(response.headers.get("retry-after", default) or default))
+                    except ValueError:
+                        delay = float(default)
+                    LOGGER.warning("Gemini %s returned HTTP %s; retrying in %.0fs", model, response.status_code, delay)
                     time.sleep(delay)
                     continue
                 if response.status_code >= 400:
                     failures.append(f"{model}: HTTP {response.status_code}")
                     break
-                data = response.json()
+                try:
+                    data = response.json()
+                except ValueError:
+                    failures.append(f"{model}: non-JSON response")
+                    break
                 candidates = data.get("candidates") or []
                 if not candidates:
                     reason = (data.get("promptFeedback") or {}).get("blockReason", "no candidates")
@@ -154,7 +164,12 @@ class GitHubModelsClient:
     preferred = ("openai/gpt-4.1-mini", "openai/gpt-4o-mini", "openai/gpt-4.1", "openai/gpt-4o")
 
     def __init__(self, token: str, *, timeout: float = 120):
-        self._headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        self._headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
         self.timeout = timeout
         self._model: str | None = None
 
@@ -195,7 +210,14 @@ class GitHubModelsClient:
             raise LLMError(f"GitHub Models failed: {type(exc).__name__}") from exc
         if response.status_code >= 400:
             raise LLMError(f"GitHub Models failed: HTTP {response.status_code}")
-        choices = response.json().get("choices") or []
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            content_type = response.headers.get("content-type", "unknown")
+            raise LLMError(
+                f"GitHub Models returned non-JSON ({content_type}, {len(response.content)} bytes)"
+            ) from exc
+        choices = payload.get("choices") or []
         if not choices:
             raise LLMError("GitHub Models returned no choices")
         return _parse_json(choices[0].get("message", {}).get("content", ""))
@@ -239,9 +261,10 @@ class LLMRouter:
                 )
             try:
                 result = client.generate_json(system=system, prompt=full_prompt, max_output_tokens=max_output_tokens)
-            except LLMError as exc:
-                errors.append(str(exc))
-                LOGGER.warning("AI provider %s failed: %s", client.name, exc)
+            except Exception as exc:  # any provider failure means "try the next one", never a crash
+                message = str(exc) if isinstance(exc, LLMError) else f"{client.name}: {type(exc).__name__}"
+                errors.append(message)
+                LOGGER.warning("AI provider %s failed: %s", client.name, message)
                 continue
             self.last_client_name = client.name
             return result

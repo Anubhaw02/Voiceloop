@@ -134,6 +134,14 @@ def test_router_falls_back_to_next_provider():
     assert router.last_client_name == "github"
 
 
+def test_router_survives_unexpected_provider_crash():
+    crashing = FakeClient([ValueError("Expecting value: line 1 column 1")], name="github")
+    router = LLMRouter([crashing])
+    with pytest.raises(LLMError):
+        router.generate_json(system="s", prompt="p")
+    assert router.failures == ["github: ValueError"]
+
+
 def test_judge_scores_and_penalises_hype():
     items = [make_item("item_a"), make_item("item_b")]
     ratings = {
