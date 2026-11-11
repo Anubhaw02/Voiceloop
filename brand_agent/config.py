@@ -5,10 +5,13 @@ import os
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 import yaml
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env", override=False)
+load_dotenv(PROJECT_ROOT / ".env.local", override=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,13 +51,6 @@ class Settings:
     @property
     def require_approval(self) -> bool:
         return bool(self.raw["safety"].get("require_approval", True))
-
-    @property
-    def allow_external_writes(self) -> bool:
-        return _env_bool(
-            "ALLOW_EXTERNAL_WRITES",
-            bool(self.raw["safety"].get("allow_external_writes", False)),
-        )
 
     @property
     def allow_external_writes(self) -> bool:

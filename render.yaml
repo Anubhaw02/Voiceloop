@@ -3,6 +3,7 @@ services:
     name: frontier-brand-agent
     runtime: docker
     plan: free
+    region: singapore
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
     autoDeployTrigger: checksPass
