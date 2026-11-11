@@ -14,7 +14,8 @@ The same codebase supports both modes. Real credentials belong only in environme
 ```text
 GitHub Actions (daily, 08:17 Asia/Kolkata)
         ↓
-research → safety scan → scoring → evidence brief → drafts
+research → safety scan → keyword scoring → AI judge (top 20)
+        → full-paper AI brief (quote-verified claims) → AI drafts (number-checked)
         ↓
 Neon PostgreSQL
         ↓
@@ -34,6 +35,9 @@ LinkedIn Posts API through member OAuth
 - Publishing requires `PUBLISH_ENABLED=true`, `ALLOW_EXTERNAL_WRITES=true`, and an approved exact draft.
 - Publishing uses an atomic status transition and records the LinkedIn post identifier to prevent duplicates.
 - Email reminders use idempotency keys and run at most once in a 20-hour window.
+- AI (free Gemini API) only returns text. Claims must quote the source verbatim, every number in a
+  draft must appear in the source, and drafts may not claim personal experience or name the employer.
+- When Gemini is unavailable, the run falls back to rule-based briefs and template drafts.
 - X publishing and automated outreach are not implemented.
 
 ## Local setup
@@ -53,6 +57,8 @@ Useful commands:
 .venv\Scripts\python.exe -m brand_agent status
 .venv\Scripts\python.exe -m brand_agent daily
 .venv\Scripts\python.exe -m brand_agent remind
+.venv\Scripts\python.exe -m brand_agent ai-check     # Gemini model availability
+.venv\Scripts\python.exe -m brand_agent ai-preview   # AI run on one item, no database writes
 .venv\Scripts\python.exe -m pytest
 ```
 
@@ -69,7 +75,8 @@ The complete account setup and deployment procedure is in [`docs/DEPLOYMENT.md`]
 ## Current limitations
 
 - Free Render instances sleep when idle, so opening the dashboard can have a cold start.
-- The free host cannot run a local 7B Ollama model. Cloud drafts use deterministic evidence-first templates unless a separate model API is added.
-- Research uses abstracts and official feed content; it does not yet deeply analyze every full paper PDF.
+- Free-tier Gemini models are sometimes overloaded; affected runs fall back to templates. Each draft's
+  rationale names the model or template that wrote it.
+- Paywalled papers are analysed from their abstract only.
 - LinkedIn self-service access tokens expire, so periodic reconnection may be required.
 - Free tiers are suitable for this personal pilot but do not provide production SLAs.
