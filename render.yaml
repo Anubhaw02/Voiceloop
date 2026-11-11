@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: frontier-brand-agent
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: AUTH_ENABLED
+        value: "true"
+      - key: PUBLISH_ENABLED
+        value: "false"
+      - key: ALLOW_EXTERNAL_WRITES
+        value: "false"
+      - key: LINKEDIN_API_VERSION
+        value: "202610"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false

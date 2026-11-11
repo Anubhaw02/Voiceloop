@@ -10,25 +10,38 @@
   <main class="shell">
     <header class="hero">
       <div>
-        <p class="eyebrow">LOCAL RESEARCH OPERATING SYSTEM</p>
+        <p class="eyebrow">PRIVATE BRAND OPERATING SYSTEM</p>
         <h1>Frontier Brand Agent</h1>
-        <p class="subtitle">Cloud × AI research → evidence → briefs → content → human approval.</p>
+        <p class="subtitle">Cloud × AI research → evidence → content → your approval → LinkedIn.</p>
       </div>
-      <form method="post" action="/pipeline/run">
-        <button class="button primary" type="submit">Run research cycle</button>
-      </form>
+      <div class="header-actions">
+        <form method="post" action="/pipeline/run">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button primary" type="submit">Run research now</button>
+        </form>
+        {% if user %}
+        <form method="post" action="/auth/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button" type="submit">Sign out</button>
+        </form>
+        {% endif %}
+      </div>
     </header>
 
     <section class="safety-banner">
-      <strong>Publishing is {{ "enabled" if publish_enabled else "hard-disabled" }}.</strong>
-      No LinkedIn, X, cloud, or email action can occur from this application. Approval only enables a local export.
+      <strong>LinkedIn publishing is {{ "enabled" if publish_enabled else "disabled" }}.</strong>
+      {% if publish_enabled %}
+        Approval publishes only the exact reviewed LinkedIn text. LinkedIn is {{ "connected" if linkedin_connected else "not connected" }}.
+      {% else %}
+        Approval is recorded but cannot write to LinkedIn until production publishing is enabled.
+      {% endif %}
     </section>
 
     <section class="metrics">
       <article><span>{{ counts.items }}</span><small>research items</small></article>
       <article><span>{{ counts.briefs }}</span><small>evidence briefs</small></article>
       <article><span>{{ counts.pending }}</span><small>awaiting approval</small></article>
-      <article><span>{{ counts.approved }}</span><small>approved / exported</small></article>
+      <article><span>{{ counts.approved }}</span><small>approved / published</small></article>
       <article><span>{{ counts.missions }}</span><small>growth missions</small></article>
     </section>
 
@@ -51,10 +64,12 @@
           <div class="mission-actions">
             {% if mission.status == 'proposed' %}
             <form method="post" action="/missions/{{ mission.id }}/activate">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="button" type="submit">Start mission</button>
             </form>
             {% else %}
             <form method="post" action="/missions/{{ mission.id }}/complete">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <textarea name="reflection" rows="3" minlength="40" required placeholder="Explain the idea in your own words, then add a disagreement, question, or experiment."></textarea>
               <button class="button approve" type="submit">Complete with evidence</button>
             </form>
@@ -69,12 +84,8 @@
     </section>
 
     <section class="panel">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">APPROVAL QUEUE</p>
-          <h2>Drafts requiring your judgment</h2>
-        </div>
-      </div>
+      <p class="eyebrow">APPROVAL QUEUE</p>
+      <h2>Drafts requiring your judgment</h2>
       {% if drafts %}
       <div class="draft-grid">
         {% for draft in drafts %}
@@ -138,4 +149,3 @@
   </main>
 </body>
 </html>
-

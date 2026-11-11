@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from dataclasses import asdict
 
@@ -10,7 +11,9 @@ import httpx
 import uvicorn
 
 from .config import load_settings
+from .automation import run_daily
 from .db import Database
+from .notifier import send_pending_review_reminder
 from .pipeline import ResearchPipeline
 from .publishing import ApprovalRequiredError, export_approved_draft
 from .scheduler import run_scheduler
@@ -32,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("init", help="Initialize the local database")
     subparsers.add_parser("run", help="Run one complete research cycle")
+    subparsers.add_parser("daily", help="Run research and send a pending-review reminder")
+    subparsers.add_parser("remind", help="Send a reminder when drafts are pending")
     subparsers.add_parser("status", help="Show local queue and recent-run status")
     subparsers.add_parser("doctor", help="Check configuration, local model, and read-only network sources")
     subparsers.add_parser("scheduler", help="Run the local recurring scheduler")
@@ -47,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def command_doctor(settings) -> int:
     checks: list[dict[str, object]] = []
-    checks.append({"check": "database_parent", "ok": settings.database_path.parent.exists()})
+    checks.append({"check": "database_configured", "ok": bool(settings.database_url)})
     checks.append({"check": "publishing_disabled", "ok": not settings.publish_enabled})
     checks.append(
         {
@@ -79,16 +84,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     settings = load_settings()
-    database = Database(settings.database_path)
+    database = Database(settings.database_url)
     database.initialize()
 
     if args.command == "init":
-        print(f"Initialized local database: {settings.database_path}")
+        print(f"Initialized {database.backend} database")
         return 0
     if args.command == "run":
         report = ResearchPipeline(settings, database).run()
         print(json.dumps(asdict(report), indent=2))
         return 0 if report.status != "failed" else 1
+    if args.command == "daily":
+        result = run_daily(settings, database)
+        print(json.dumps(result, indent=2))
+        return 0 if result["pipeline"]["status"] != "failed" else 1
+    if args.command == "remind":
+        print(json.dumps(send_pending_review_reminder(settings=settings, database=database), indent=2))
+        return 0
     if args.command == "status":
         print(json.dumps({"counts": database.dashboard_counts(), "runs": database.recent_runs()}, indent=2))
         return 0
@@ -99,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "serve":
         host = args.host or settings.raw["app"].get("dashboard_host", "127.0.0.1")
-        port = args.port or int(settings.raw["app"].get("dashboard_port", 8765))
+        port = args.port or int(os.getenv("PORT", settings.raw["app"].get("dashboard_port", 8765)))
         uvicorn.run("brand_agent.web:app", host=host, port=port, reload=False)
         return 0
     if args.command == "export":

@@ -22,9 +22,9 @@ def assert_publish_allowed(settings: Settings, draft: ContentDraft) -> None:
         raise PublishingDisabledError(
             "Publishing is hard-disabled in config/agent.yaml. The local pipeline may only export approved drafts."
         )
-    if settings.require_approval and draft.status != "approved":
+    if settings.require_approval and draft.status not in {"approved", "publish_failed"}:
         raise ApprovalRequiredError("A human must approve this exact draft before publishing.")
-    if not settings.raw["safety"].get("allow_external_writes", False):
+    if not settings.allow_external_writes:
         raise PublishingDisabledError("External writes are disabled by the local safety policy.")
 
 
@@ -39,7 +39,7 @@ def export_approved_draft(
     settings: Settings,
     draft: ContentDraft,
 ) -> Path:
-    if draft.status not in {"approved", "exported"}:
+    if draft.status not in {"approved", "exported", "published"}:
         raise ApprovalRequiredError("Only approved drafts can be exported.")
 
     settings.export_directory.mkdir(parents=True, exist_ok=True)
@@ -52,7 +52,8 @@ def export_approved_draft(
     }
     content = f"---\n{json.dumps(metadata, indent=2)}\n---\n\n{draft.body}\n"
     destination.write_text(content, encoding="utf-8")
-    database.set_draft_status(draft.id, "exported")
+    if draft.status != "published":
+        database.set_draft_status(draft.id, "exported")
     database.log_event("draft_exported", "draft", draft.id, {"path": str(destination)})
     return destination
 

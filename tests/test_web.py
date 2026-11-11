@@ -88,3 +88,18 @@ def test_approval_requires_integrity_checklist(tmp_path: Path):
     assert complete.status_code == 303
     assert database.get_draft("draft_web").status == "approved"
 
+    replay = client.post(
+        "/drafts/draft_web/approve",
+        data={
+            "body": "A replay must not replace approved text",
+            "understood": "true",
+            "checked_claims": "true",
+            "represents_me": "true",
+        },
+        follow_redirects=False,
+    )
+    assert replay.status_code == 303
+    approved = database.get_draft("draft_web")
+    assert approved is not None
+    assert approved.body == "Exact text"
+

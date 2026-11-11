@@ -20,11 +20,25 @@
       <p>{{ draft.rationale }}</p>
     </header>
 
+    {% if draft.publish_error %}
+    <section class="error-banner">
+      <strong>LinkedIn publishing failed.</strong> {{ draft.publish_error }}
+    </section>
+    {% endif %}
+    {% if draft.status == 'published' %}
+    <section class="success-banner">
+      <strong>Published successfully.</strong> LinkedIn reference: {{ draft.external_post_id }}
+    </section>
+    {% endif %}
+
     <section class="two-column">
       <article class="panel compose-panel">
         <p class="eyebrow">EXACT PUBLIC TEXT</p>
         <h2>Edit and decide</h2>
+
+        {% if draft.status in ['pending_approval', 'rejected'] %}
         <form method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <textarea name="body" rows="25" spellcheck="true">{{ draft.body }}</textarea>
           <fieldset class="approval-checklist">
             <legend>Approval means all three are true</legend>
@@ -34,19 +48,33 @@
           </fieldset>
           <div class="action-row">
             <button class="button" formaction="/drafts/{{ draft.id }}/save">Save edit</button>
-            <button class="button approve" formaction="/drafts/{{ draft.id }}/approve">Approve exact text</button>
+            <button class="button approve" formaction="/drafts/{{ draft.id }}/approve">
+              {% if draft.platform == 'linkedin' and publish_enabled %}Approve & publish to LinkedIn{% else %}Approve exact text{% endif %}
+            </button>
           </div>
         </form>
         <form class="reject-form" method="post" action="/drafts/{{ draft.id }}/reject">
-          <input name="reason" value="Needs revision" aria-label="Rejection reason">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input name="reason" value="Needs revision">
           <button class="button reject" type="submit">Reject</button>
         </form>
-        {% if draft.status in ['approved', 'exported'] %}
-        <form method="post" action="/drafts/{{ draft.id }}/export">
-          <button class="button primary" type="submit">Export locally as Markdown</button>
+        {% else %}
+        <textarea rows="25" readonly>{{ draft.body }}</textarea>
+        {% endif %}
+
+        {% if draft.status in ['approved', 'publish_failed'] and draft.platform == 'linkedin' and publish_enabled %}
+        <form method="post" action="/drafts/{{ draft.id }}/publish">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button approve" type="submit">{% if draft.status == 'publish_failed' %}Retry LinkedIn publish{% else %}Publish approved text{% endif %}</button>
         </form>
         {% endif %}
-        <p class="guard-note">Approval does not publish. Publishing is {{ "enabled" if publish_enabled else "hard-disabled" }}.</p>
+
+        {% if draft.status in ['approved', 'exported', 'published'] %}
+        <form method="post" action="/drafts/{{ draft.id }}/export">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button" type="submit">Export local copy</button>
+        </form>
+        {% endif %}
       </article>
 
       <aside>
@@ -85,4 +113,3 @@
   </main>
 </body>
 </html>
-

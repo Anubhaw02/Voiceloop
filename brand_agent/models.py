@@ -71,6 +71,10 @@ class ContentDraft:
     status: str = "pending_approval"
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
+    approved_at: str | None = None
+    published_at: str | None = None
+    external_post_id: str | None = None
+    publish_error: str | None = None
 
 
 @dataclass(slots=True)

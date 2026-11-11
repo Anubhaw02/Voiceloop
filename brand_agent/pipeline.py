@@ -30,7 +30,7 @@ class PipelineReport:
 class ResearchPipeline:
     def __init__(self, settings: Settings, database: Database | None = None):
         self.settings = settings
-        self.database = database or Database(settings.database_path)
+        self.database = database or Database(settings.database_url)
         self.database.initialize()
 
     def run(self) -> PipelineReport:

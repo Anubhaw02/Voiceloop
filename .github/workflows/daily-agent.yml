@@ -1,0 +1,42 @@
+name: Daily brand agent
+
+on:
+  schedule:
+    - cron: "17 8 * * *"
+      timezone: "Asia/Kolkata"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontier-brand-agent-daily
+  cancel-in-progress: false
+
+jobs:
+  research-and-remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: worker
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BASE_URL: ${{ secrets.BASE_URL }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      REMINDER_EMAIL: ${{ secrets.REMINDER_EMAIL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install agent
+        run: pip install .
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          test -n "$DATABASE_URL" || { echo "DATABASE_URL secret is missing"; exit 1; }
+          test -n "$BASE_URL" || { echo "BASE_URL secret is missing"; exit 1; }
+          test -n "$RESEND_API_KEY" || { echo "RESEND_API_KEY secret is missing"; exit 1; }
+          test -n "$REMINDER_EMAIL" || { echo "REMINDER_EMAIL secret is missing"; exit 1; }
+      - name: Research, draft, and remind
+        run: python -m brand_agent daily

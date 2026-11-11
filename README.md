@@ -1,147 +1,75 @@
 # Frontier Brand Agent
 
-A local-first automation pipeline for discovering and evaluating **Cloud × AI × real-world industry** research, turning the strongest evidence into briefs and platform-specific drafts, and placing every public action behind explicit human approval.
+A private Cloud × AI research and personal-brand pipeline. It discovers credible research, ranks real-world industry relevance, creates evidence briefs and LinkedIn/X drafts, reminds the owner to review them, and publishes a LinkedIn draft only after explicit approval of the exact text.
 
-The application performs no LinkedIn, X, email, or cloud writes. Publishing is hard-disabled in [`config/agent.yaml`](config/agent.yaml), and approved drafts can only be exported to the local [`exports`](exports) directory.
+## Operating modes
 
-## What works
+- **Local:** SQLite, Windows Task Scheduler, no external writes by default.
+- **Cloud:** Render dashboard, Neon PostgreSQL, GitHub Actions daily worker, Resend reminders, and LinkedIn OAuth publishing.
 
-- Read-only discovery from arXiv, OpenAlex, and configured official RSS feeds
-- Offline curated seed set so the full pipeline remains testable if a source is unavailable
-- Deduplication and Cloud × AI relevance scoring
-- Classification into Cloud for AI, AI for Cloud, industry applications, and agent reliability
-- Evidence briefs with explicit publication-status limitations
-- Claim ledger that distinguishes source-reported claims from independent verification
-- LinkedIn and X drafts in an evidence-first voice
-- Private learning missions that require an explanation, critique, or experiment before claiming growth
-- Optional local Ollama support; deterministic drafting works without a model
-- Approval, rejection, editing, and local export dashboard
-- Three-part approval checklist: understanding, claim review, and exact voice confirmation
-- Queue protection: scheduled runs never overwrite pending edits and stop adding drafts at the configured review limit
-- Quarantine rules for instruction injection, credential exfiltration, tool execution, and unauthorized external-action text found in sources
-- SQLite audit trail and run history
-- Local 12-hour scheduler and optional Windows Scheduled Task
-- Hard guard preventing publishing when external writes are disabled
+The same codebase supports both modes. Real credentials belong only in environment-variable secret stores and must never be committed.
 
-## Setup
-
-From Windows Explorer, run:
+## Cloud flow
 
 ```text
-scripts\setup.cmd
+GitHub Actions (daily, 08:17 Asia/Kolkata)
+        ↓
+research → safety scan → scoring → evidence brief → drafts
+        ↓
+Neon PostgreSQL
+        ↓
+Resend reminder email → authenticated Render dashboard
+        ↓
+edit → verify claims → approve exact text
+        ↓
+LinkedIn Posts API through member OAuth
 ```
 
-Or from PowerShell:
+## Safety properties
+
+- Internet sources are treated as untrusted and scanned before drafting.
+- The dashboard is private in production and restricted to `ADMIN_EMAIL` through LinkedIn OAuth.
+- Every state-changing form is protected by a session-bound CSRF token.
+- LinkedIn tokens are encrypted before database storage.
+- Publishing requires `PUBLISH_ENABLED=true`, `ALLOW_EXTERNAL_WRITES=true`, and an approved exact draft.
+- Publishing uses an atomic status transition and records the LinkedIn post identifier to prevent duplicates.
+- Email reminders use idempotency keys and run at most once in a 20-hour window.
+- X publishing and automated outreach are not implemented.
+
+## Local setup
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\setup.ps1
+.venv\Scripts\python.exe -m brand_agent run
+.venv\Scripts\python.exe -m brand_agent serve
 ```
 
-## Use
+Open <http://127.0.0.1:8765>.
 
-Run one complete research cycle:
-
-```text
-scripts\run_once.cmd
-```
-
-Open the approval dashboard:
-
-```text
-scripts\start_dashboard.cmd
-```
-
-Then visit <http://127.0.0.1:8765>.
-
-Run the foreground scheduler:
-
-```text
-scripts\start_scheduler.cmd
-```
-
-Register a local Windows task that runs every 12 hours:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\register_scheduled_task.ps1
-```
-
-Keep the local-only dashboard available after each Windows logon:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\register_dashboard_task.ps1
-```
-
-Remove it:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\unregister_scheduled_task.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\unregister_dashboard_task.ps1
-```
-
-## CLI
+Useful commands:
 
 ```powershell
 .venv\Scripts\python.exe -m brand_agent doctor
-.venv\Scripts\python.exe -m brand_agent run
 .venv\Scripts\python.exe -m brand_agent status
-.venv\Scripts\python.exe -m brand_agent serve
-.venv\Scripts\python.exe -m brand_agent scheduler
-```
-
-Export requires an exact approved draft:
-
-```powershell
-.venv\Scripts\python.exe -m brand_agent export DRAFT_ID
-```
-
-There is intentionally no `publish` command in this MVP.
-
-## Pipeline
-
-```text
-read-only sources
-      ↓
-normalize + deduplicate
-      ↓
-Cloud × AI relevance scoring
-      ↓
-evidence brief + claim ledger
-      ↓
-LinkedIn/X drafting
-      ↓
-pending approval
-      ↓
-edit / reject / approve
-      ↓
-local Markdown export only
+.venv\Scripts\python.exe -m brand_agent daily
+.venv\Scripts\python.exe -m brand_agent remind
+.venv\Scripts\python.exe -m pytest
 ```
 
 ## Configuration
 
-- [`config/profile.yaml`](config/profile.yaml): identity, audience, voice, content pillars, and boundaries
-- [`config/agent.yaml`](config/agent.yaml): sources, scoring, scheduler, local model, and safety policy
+- [`config/profile.yaml`](config/profile.yaml): identity, goals, audience, voice, and content pillars.
+- [`config/agent.yaml`](config/agent.yaml): research sources, scoring, drafting, and safe defaults.
+- [`.env.example`](.env.example): environment variable reference with no real secrets.
+- [`render.yaml`](render.yaml): Render Blueprint.
+- [`.github/workflows/daily-agent.yml`](.github/workflows/daily-agent.yml): daily cloud worker.
 
-To use a local Ollama model later:
+The complete account setup and deployment procedure is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-1. Install Ollama locally.
-2. Pull the model named by `drafting.ollama_model`.
-3. Leave `drafting.provider: auto`; the pipeline detects the local model.
+## Current limitations
 
-If the model is absent, the pipeline uses the deterministic evidence-first template and remains fully operational.
-
-## Safety model
-
-Three independent conditions would be required before any future publishing adapter could operate:
-
-1. `publish_enabled: true`
-2. `allow_external_writes: true`
-3. The exact draft status is `approved`
-
-This repository ships with the first two set to `false` and contains no external publishing adapter or account credentials.
-
-## Tests
-
-```powershell
-.venv\Scripts\python.exe -m pytest
-```
-
+- Free Render instances sleep when idle, so opening the dashboard can have a cold start.
+- The free host cannot run a local 7B Ollama model. Cloud drafts use deterministic evidence-first templates unless a separate model API is added.
+- Research uses abstracts and official feed content; it does not yet deeply analyze every full paper PDF.
+- LinkedIn self-service access tokens expire, so periodic reconnection may be required.
+- Free tiers are suitable for this personal pilot but do not provide production SLAs.

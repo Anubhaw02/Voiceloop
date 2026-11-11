@@ -13,6 +13,10 @@ exports/*.md
 exports/*.json
 !exports/.gitkeep
 .env
+.env.*
+!.env.example
+*.pem
+*.key
 .DS_Store
 Thumbs.db
 
