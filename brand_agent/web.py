@@ -88,6 +88,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not expected or not submitted or not secrets.compare_digest(expected, submitted):
             raise HTTPException(status_code=403, detail="Invalid or missing CSRF token")
 
+    def queue_full() -> bool:
+        # Each selected topic needs one slot per platform (LinkedIn + X), so
+        # the queue is effectively full before it reaches the hard limit.
+        drafting = settings.raw["drafting"]
+        platforms = max(1, len(drafting.get("platforms", ["linkedin"])))
+        free = int(drafting.get("max_pending_drafts", 10)) - database.pending_draft_count()
+        return free // platforms == 0
+
     def linkedin_connected() -> bool:
         if not settings.linkedin_configured:
             return False
@@ -158,6 +166,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "csrf_token": csrf_for(request),
                 "research_running": research_lock.locked(),
                 "research_notice": research if research in {"started", "already_running"} else "",
+                "queue_full": queue_full(),
                 "max_pending_drafts": int(settings.raw["drafting"].get("max_pending_drafts", 10)),
             },
         )

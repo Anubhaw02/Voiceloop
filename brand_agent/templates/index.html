@@ -43,15 +43,15 @@
     <section class="safety-banner">
       {% if research_running %}
         <strong>Research is running in the background.</strong>
-        It usually takes 5–10 minutes. Refresh this page later; the run appears under Run history when finished.
+        It usually takes 1–5 minutes (longer when AI writes new drafts). Refresh this page; the run appears under Run history when finished.
       {% elif research_notice == 'already_running' %}
         <strong>A research run is already in progress.</strong>
       {% else %}
         <strong>Research run finished.</strong> See Run history below for the result.
       {% endif %}
-      {% if counts.pending >= max_pending_drafts %}
-        <br>Your approval queue is full ({{ counts.pending }}/{{ max_pending_drafts }}), so research refreshes signals
-        but creates no new drafts until you approve or reject some.
+      {% if queue_full %}
+        <br>Your approval queue is full ({{ counts.pending }}/{{ max_pending_drafts }} pending; each topic needs a LinkedIn
+        and an X slot), so research refreshes signals but creates no new drafts until you approve or reject some.
       {% endif %}
     </section>
     {% endif %}

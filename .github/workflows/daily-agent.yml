@@ -5,9 +5,16 @@ on:
     - cron: "17 8 * * *"
       timezone: "Asia/Kolkata"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "daily = full run (writes drafts); ai-preview = test AI on one item, writes nothing"
+        type: choice
+        options: [daily, ai-preview]
+        default: daily
 
 permissions:
   contents: read
+  models: read  # free GitHub Models fallback via GITHUB_TOKEN
 
 concurrency:
   group: frontier-brand-agent-daily
@@ -16,13 +23,16 @@ concurrency:
 jobs:
   research-and-remind:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       APP_ENV: worker
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       BASE_URL: ${{ secrets.BASE_URL }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       REMINDER_EMAIL: ${{ secrets.REMINDER_EMAIL }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -38,5 +48,10 @@ jobs:
           test -n "$BASE_URL" || { echo "BASE_URL secret is missing"; exit 1; }
           test -n "$RESEND_API_KEY" || { echo "RESEND_API_KEY secret is missing"; exit 1; }
           test -n "$REMINDER_EMAIL" || { echo "REMINDER_EMAIL secret is missing"; exit 1; }
+          test -n "$GEMINI_API_KEY" || echo "::warning::GEMINI_API_KEY is not set; drafts will use templates"
       - name: Research, draft, and remind
+        if: ${{ github.event_name == 'schedule' || inputs.mode == 'daily' }}
         run: python -m brand_agent daily
+      - name: AI preview (no database writes)
+        if: ${{ inputs.mode == 'ai-preview' }}
+        run: python -m brand_agent ai-preview

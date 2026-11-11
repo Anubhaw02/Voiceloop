@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -150,18 +151,24 @@ class OpenAlexSource(BaseHTTPSource):
     def discover(self) -> list[ResearchItem]:
         items: list[ResearchItem] = []
         from_date = (datetime.now(timezone.utc) - timedelta(days=self.lookback_days)).date()
+        api_key = os.getenv("OPENALEX_API_KEY", "").strip()
         for query in self.queries:
-            response = self.client.get(
-                self.endpoint,
-                params={
-                    "search": query,
-                    "filter": f"from_publication_date:{from_date.isoformat()},is_retracted:false",
-                    "sort": "publication_date:desc",
-                    "per-page": self.max_results,
-                    "select": "id,doi,title,publication_date,type,authorships,abstract_inverted_index,primary_location,open_access",
-                },
-            )
-            response.raise_for_status()
+            params: dict[str, Any] = {
+                "search": query,
+                "filter": f"from_publication_date:{from_date.isoformat()},is_retracted:false",
+                "sort": "publication_date:desc",
+                "per-page": self.max_results,
+                "select": "id,doi,title,publication_date,type,authorships,abstract_inverted_index,primary_location,open_access",
+            }
+            if api_key:
+                params["api_key"] = api_key
+            response = self.client.get(self.endpoint, params=params)
+            if response.status_code in (401, 403, 429):
+                hint = "" if api_key else " OpenAlex requires a free API key: set OPENALEX_API_KEY."
+                # Never echo the request URL: it would contain the key.
+                raise RuntimeError(f"OpenAlex returned HTTP {response.status_code}.{hint}")
+            if response.status_code >= 400:
+                raise RuntimeError(f"OpenAlex returned HTTP {response.status_code}.")
             for work in response.json().get("results", []):
                 title = clean_text(work.get("title", ""))
                 abstract = _reconstruct_openalex_abstract(work.get("abstract_inverted_index"))

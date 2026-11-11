@@ -40,6 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("status", help="Show local queue and recent-run status")
     subparsers.add_parser("doctor", help="Check configuration, local model, and read-only network sources")
     subparsers.add_parser("scheduler", help="Run the local recurring scheduler")
+    subparsers.add_parser(
+        "ai-preview",
+        help="Test the AI judge, full-text brief and drafts on one item without saving anything",
+    )
 
     serve = subparsers.add_parser("serve", help="Start the local approval dashboard")
     serve.add_argument("--host")
@@ -106,6 +110,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "doctor":
         return command_doctor(settings)
+    if args.command == "ai-preview":
+        result = ResearchPipeline(settings, database).ai_preview()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0 if result.get("ok") else 1
     if args.command == "scheduler":
         run_scheduler(settings)
         return 0

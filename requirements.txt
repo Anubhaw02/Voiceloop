@@ -2,6 +2,7 @@ fastapi>=0.115,<1
 uvicorn[standard]>=0.32,<1
 httpx>=0.28,<1
 feedparser>=6.0.11,<7
+pypdf>=6,<7
 PyYAML>=6.0.2,<7
 APScheduler>=3.10.4,<4
 Jinja2>=3.1.4,<4

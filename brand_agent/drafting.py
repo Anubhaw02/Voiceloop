@@ -191,6 +191,18 @@ def create_draft(
     profile: dict[str, Any],
 ) -> ContentDraft:
     body = provider.draft(item=item, brief=brief, platform=platform, profile=profile)
+    return build_draft(item=item, brief=brief, platform=platform, body=body, provider_name=provider.name)
+
+
+def build_draft(
+    *,
+    item: ResearchItem,
+    brief: ResearchBrief,
+    platform: str,
+    body: str,
+    provider_name: str,
+    note: str = "",
+) -> ContentDraft:
     draft_id = f"draft_{uuid.uuid5(NAMESPACE, brief.id + ':' + platform).hex[:20]}"
     risk = "medium" if item.publication_status.startswith("preprint") else "low"
     return ContentDraft(
@@ -202,7 +214,8 @@ def create_draft(
         rationale=(
             f"Selected for Cloud x AI relevance ({item.score:.1f}/100), "
             f"{item.publication_status.replace('_', ' ')}, and potential value for {item.industry.replace('_', ' ')}. "
-            f"Drafted with {provider.name}."
+            f"Drafted with {provider_name}."
+            + (f" {note}" if note else "")
         ),
         risk_level=risk,
     )
