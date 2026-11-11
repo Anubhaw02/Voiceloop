@@ -22,7 +22,7 @@ concurrency:
 jobs:
   research-and-remind:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       APP_ENV: worker
       DATABASE_URL: ${{ secrets.DATABASE_URL }}

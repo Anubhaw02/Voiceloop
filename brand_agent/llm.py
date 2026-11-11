@@ -63,7 +63,7 @@ class GeminiClient:
     max_document_chars = 120_000
     _excluded = ("image", "tts", "audio", "live", "embedding", "vision", "learnlm", "robotics", "computer-use")
 
-    def __init__(self, api_key: str, *, preferred_model: str = "", min_interval_seconds: float = 6.0, timeout: float = 120):
+    def __init__(self, api_key: str, *, preferred_model: str = "", min_interval_seconds: float = 6.0, timeout: float = 75):
         self._headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
         self.preferred_model = preferred_model.strip().removeprefix("models/")
         self.min_interval_seconds = min_interval_seconds
