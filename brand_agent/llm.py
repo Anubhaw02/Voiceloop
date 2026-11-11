@@ -272,6 +272,67 @@ class LLMRouter:
         raise LLMError(" | ".join(errors) or "no AI provider available")
 
 
+def diagnose() -> list[dict[str, Any]]:
+    """Tiny request to every configured provider/model, reporting status,
+    latency and the start of the body. Never prints credentials."""
+    results: list[dict[str, Any]] = []
+    tiny = 'Return exactly this JSON object: {"ok": true}'
+
+    def probe(label: str, method: str, url: str, headers: dict[str, str], **kwargs: Any) -> None:
+        started = time.monotonic()
+        try:
+            response = httpx.request(method, url, headers=headers, timeout=90, **kwargs)
+            results.append(
+                {
+                    "probe": label,
+                    "status": response.status_code,
+                    "seconds": round(time.monotonic() - started, 1),
+                    "content_type": response.headers.get("content-type", ""),
+                    "body_start": response.text[:300],
+                }
+            )
+        except Exception as exc:
+            results.append({"probe": label, "error": type(exc).__name__, "seconds": round(time.monotonic() - started, 1)})
+
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if gemini_key:
+        client = GeminiClient(gemini_key)
+        try:
+            models = client.candidate_models()
+            results.append({"probe": "gemini models", "candidates": models})
+        except Exception as exc:
+            models = []
+            results.append({"probe": "gemini models", "error": str(exc)[:300]})
+        for model in models:
+            probe(
+                f"gemini {model}",
+                "POST",
+                f"{GeminiClient.base_url}/models/{model}:generateContent",
+                client._headers,
+                json={
+                    "contents": [{"role": "user", "parts": [{"text": tiny}]}],
+                    "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": 200},
+                },
+            )
+    else:
+        results.append({"probe": "gemini", "error": "GEMINI_API_KEY not set"})
+
+    token = os.getenv("GITHUB_TOKEN", "").strip()
+    if token:
+        github = GitHubModelsClient(token)
+        probe("github catalog", "GET", f"{GitHubModelsClient.base_url}/catalog/models", github._headers)
+        probe(
+            "github chat openai/gpt-4.1-mini",
+            "POST",
+            f"{GitHubModelsClient.base_url}/inference/chat/completions",
+            github._headers,
+            json={"model": "openai/gpt-4.1-mini", "messages": [{"role": "user", "content": tiny}], "max_tokens": 50},
+        )
+    else:
+        results.append({"probe": "github models", "error": "GITHUB_TOKEN not set"})
+    return results
+
+
 def build_router(config: dict[str, Any]) -> LLMRouter | None:
     """Builds the router from environment secrets. Returns None when no
     provider is configured, so the pipeline keeps its rule-based mode."""

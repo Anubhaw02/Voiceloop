@@ -40,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("status", help="Show local queue and recent-run status")
     subparsers.add_parser("doctor", help="Check configuration, local model, and read-only network sources")
     subparsers.add_parser("scheduler", help="Run the local recurring scheduler")
+    subparsers.add_parser("ai-check", help="Send a tiny request to each AI provider and report status")
     subparsers.add_parser(
         "ai-preview",
         help="Test the AI judge, full-text brief and drafts on one item without saving anything",
@@ -88,6 +89,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure_logging(args.verbose)
     settings = load_settings()
+    if args.command == "ai-check":  # needs no database
+        from .llm import diagnose
+
+        print(json.dumps(diagnose(), indent=2, ensure_ascii=False))
+        return 0
     database = Database(settings.database_url)
     database.initialize()
 

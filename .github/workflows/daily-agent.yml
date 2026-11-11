@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "daily = full run (writes drafts); ai-preview = test AI on one item, writes nothing"
+        description: "daily = full run (writes drafts); ai-preview = test AI on one item, writes nothing; ai-check = provider diagnostics"
         type: choice
-        options: [daily, ai-preview]
+        options: [daily, ai-preview, ai-check]
         default: daily
 
 permissions:
@@ -55,3 +55,6 @@ jobs:
       - name: AI preview (no database writes)
         if: ${{ inputs.mode == 'ai-preview' }}
         run: python -m brand_agent ai-preview
+      - name: AI provider check (no database writes)
+        if: ${{ inputs.mode == 'ai-check' }}
+        run: python -m brand_agent ai-check
