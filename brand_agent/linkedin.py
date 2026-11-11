@@ -8,6 +8,7 @@ import httpx
 from .auth import LinkedInAuthError, LinkedInOAuth
 from .config import Settings
 from .db import Database
+from .linkedin_format import to_linkedin_commentary
 from .models import ContentDraft
 from .publishing import assert_publish_allowed
 
@@ -47,7 +48,7 @@ def publish_linkedin_draft(
     version = os.getenv("LINKEDIN_API_VERSION", "202610")
     payload = {
         "author": f"urn:li:person:{credential['subject']}",
-        "commentary": draft.body,
+        "commentary": to_linkedin_commentary(draft.body),
         "visibility": "PUBLIC",
         "distribution": {
             "feedDistribution": "MAIN_FEED",

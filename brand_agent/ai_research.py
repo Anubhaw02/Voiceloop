@@ -252,9 +252,13 @@ Hard rules:
 - {"State plainly that this is a preprint, not yet peer reviewed." if preprint else "Mention the publication status briefly."}
 - No hype words (revolutionary, game-changer, mind-blowing), no emojis, at most 3 hashtags, no URLs (the link is added automatically).
 
-"linkedin": 900-1800 characters. A specific opening line (not a cliche), the problem, what is new, one or two key results,
-why it matters for cloud/AI systems in industry, an honest limitation, and a closing question for founders/engineers.
-Short paragraphs.
+"linkedin": 900-1800 characters, formatted to be easy to scan on a phone:
+- First line: a specific, curiosity-creating hook (not a cliche), wrapped in **double asterisks** for bold. Then a blank line.
+- The problem, what is new, one or two key results, why it matters for cloud/AI systems in industry, an honest limitation.
+- Use 2-3 short section labels in **bold** on their own line (e.g. **What's new**, **Why it matters**, **The catch**).
+- Where listing results, use short lines starting with "→ ".
+- Bold only the hook and labels (never whole paragraphs). One idea per short paragraph.
+- End with a question for founders/engineers, then 2-3 relevant hashtags on the last line.
 "x": one or two short sentences, about {max(80, x_budget - 60)} characters and never more than {x_budget}.
 One sharp insight with one concrete result. Count the characters.
 
@@ -280,6 +284,8 @@ Brief and verified claims:
                 continue
             body = str(data.get(platform, "")).strip()
             body = re.sub(r"https?://\S+", "", body).strip()
+            if platform != "linkedin":
+                body = body.replace("**", "")  # bold conversion exists only for LinkedIn
             limit = linkedin_max - len(item.url) - 12 if platform == "linkedin" else x_budget
             if platform == "x" and len(body) > limit:
                 body = _trim_to_sentences(body, limit)

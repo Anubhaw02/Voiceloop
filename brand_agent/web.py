@@ -16,6 +16,7 @@ from .auth import LinkedInAuthError, LinkedInOAuth, new_csrf_token, new_oauth_st
 from .config import Settings, load_settings
 from .db import Database
 from .linkedin import LinkedInPublishError, publish_linkedin_draft
+from .linkedin_format import BOLD, unicode_bold
 from .pipeline import ResearchPipeline
 from .publishing import (
     ApprovalRequiredError,
@@ -208,6 +209,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "brief": brief,
                 "item": item,
                 "claims": database.list_claims(item.id),
+                "linkedin_preview": BOLD.sub(lambda match: unicode_bold(match.group(1)), draft.body),
                 "publish_enabled": settings.publish_enabled,
                 "linkedin_connected": linkedin_connected(),
                 "csrf_token": csrf_for(request),

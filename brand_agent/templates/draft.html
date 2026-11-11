@@ -62,6 +62,12 @@
         <textarea rows="25" readonly>{{ draft.body }}</textarea>
         {% endif %}
 
+        {% if draft.platform == 'linkedin' %}
+        <p class="eyebrow" style="margin-top:24px">HOW IT WILL LOOK ON LINKEDIN</p>
+        <div class="linkedin-preview">{{ linkedin_preview }}</div>
+        <small>**Text** becomes bold. Save an edit to refresh this preview.</small>
+        {% endif %}
+
         {% if draft.status in ['approved', 'publish_failed'] and draft.platform == 'linkedin' and publish_enabled %}
         <form method="post" action="/drafts/{{ draft.id }}/publish">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

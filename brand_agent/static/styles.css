@@ -93,3 +93,4 @@ dd { margin: 0; }
   .draft-grid, .two-column, .mission-card { grid-template-columns: 1fr; }
 }
 
+.linkedin-preview { white-space: pre-wrap; background: #ffffff; color: #191919; border-radius: 12px; padding: 18px; font: 0.95rem/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; margin-bottom: 6px; }
