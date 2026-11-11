@@ -16,6 +16,7 @@ from .safety import scan_untrusted_text
 LOGGER = logging.getLogger(__name__)
 MAX_CHARS = 150_000
 MIN_USEFUL_CHARS = 2_500
+BLOCKING_RULES = {"instruction_override", "credential_exfiltration"}
 ARXIV_ID = re.compile(r"arxiv\.org/(?:abs|pdf|html)/([0-9]{4}\.[0-9]{4,5}(?:v\d+)?)", re.I)
 
 
@@ -72,8 +73,12 @@ def fetch_full_text(item: ResearchItem, *, timeout: float = 40, user_agent: str 
             continue
         if len(text) < MIN_USEFUL_CHARS:
             continue
-        if scan_untrusted_text(text):
-            LOGGER.warning("Full text for %s contains instruction-like content; using abstract only", item.id)
+        # Papers about ops/agents naturally say "run the tool" or "execute a command",
+        # so only manipulation patterns disqualify a full text. The model has no
+        # tools and its output is verified by code, so these two rules suffice.
+        manipulation = [f for f in scan_untrusted_text(text) if f.rule in BLOCKING_RULES]
+        if manipulation:
+            LOGGER.warning("Full text for %s contains %s; using abstract only", item.id, manipulation[0].rule)
             break
         return text[:MAX_CHARS], "full_text"
     return item.abstract, "abstract_only"
