@@ -66,6 +66,22 @@
         <p class="eyebrow" style="margin-top:24px">HOW IT WILL LOOK ON LINKEDIN</p>
         <div class="linkedin-preview">{{ linkedin_preview }}</div>
         <small>**Text** becomes bold. Save an edit to refresh this preview.</small>
+
+        {% if card %}
+        <p class="eyebrow" style="margin-top:24px">IMAGE ATTACHED TO THE POST</p>
+        {% if card.enabled %}
+        <img class="card-preview" src="/drafts/{{ draft.id }}/card.png" alt="Insight card: {{ card.headline }}">
+        {% else %}
+        <p class="empty">Image turned off: this post will be published as text only.</p>
+        {% endif %}
+        {% if draft.status not in ['publishing', 'published'] %}
+        <form method="post" action="/drafts/{{ draft.id }}/card">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="enabled" value="{{ 'false' if card.enabled else 'true' }}">
+          <button class="button" type="submit">{{ "Post without image" if card.enabled else "Attach image again" }}</button>
+        </form>
+        {% endif %}
+        {% endif %}
         {% endif %}
 
         {% if draft.status in ['approved', 'publish_failed'] and draft.platform == 'linkedin' and publish_enabled %}

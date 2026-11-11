@@ -75,6 +75,7 @@ class ContentDraft:
     published_at: str | None = None
     external_post_id: str | None = None
     publish_error: str | None = None
+    card_json: str | None = None  # insight-card image data; None = no image
 
 
 @dataclass(slots=True)

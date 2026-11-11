@@ -104,6 +104,7 @@ drafts = Table(
     Column("published_at", String),
     Column("external_post_id", Text),
     Column("publish_error", Text),
+    Column("card_json", Text),
     UniqueConstraint("brief_id", "platform", name="uq_draft_brief_platform"),
 )
 Index("idx_drafts_status", drafts.c.status, drafts.c.created_at)
@@ -210,6 +211,7 @@ class Database:
             "published_at": "TEXT",
             "external_post_id": "TEXT",
             "publish_error": "TEXT",
+            "card_json": "TEXT",
         }
         with self.engine.begin() as connection:
             if self.backend == "sqlite":
@@ -478,6 +480,7 @@ class Database:
             "rationale": draft.rationale,
             "risk_level": draft.risk_level,
             "updated_at": draft.updated_at,
+            "card_json": draft.card_json,
         }
         with self.engine.begin() as connection:
             existing = connection.execute(
@@ -508,6 +511,16 @@ class Database:
                 )
             )
 
+    def set_draft_card_json(self, draft_id: str, card_json: str) -> bool:
+        """Updates image data unless the draft is already (being) published."""
+        with self.engine.begin() as connection:
+            result = connection.execute(
+                update(drafts)
+                .where(and_(drafts.c.id == draft_id, drafts.c.status.notin_(["publishing", "published"])))
+                .values(card_json=card_json, updated_at=utc_now())
+            )
+        return bool(result.rowcount)
+
     def supersede_pending_drafts(self) -> None:
         with self.engine.begin() as connection:
             connection.execute(
@@ -533,6 +546,7 @@ class Database:
             published_at=row.get("published_at"),
             external_post_id=row.get("external_post_id"),
             publish_error=row.get("publish_error"),
+            card_json=row.get("card_json"),
         )
 
     def get_draft(self, draft_id: str) -> ContentDraft | None:

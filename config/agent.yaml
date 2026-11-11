@@ -114,6 +114,9 @@ drafting:
   linkedin_max_characters: 2600
   x_max_characters: 270
   max_pending_drafts: 10
+  # With an AI key configured, topics the AI cannot write are skipped and retried
+  # next run instead of being saved as rule-based template drafts.
+  ai_only: true
 
 llm:
   # Free Gemini API (GEMINI_API_KEY). Several Flash models are tried in order;

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from .ai_research import ai_brief, ai_drafts, judge_items
+from .ai_research import DraftResult, ai_brief, ai_drafts, judge_items
 from .config import Settings
 from .db import Database
 from .drafting import build_draft, choose_provider, create_draft
@@ -34,6 +35,7 @@ class PipelineReport:
     ai_judged: int = 0
     ai_briefs: int = 0
     ai_drafts: int = 0
+    ai_skipped: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -123,6 +125,7 @@ class ResearchPipeline:
             provider = choose_provider(self.settings.raw["drafting"])
             drafting = self.settings.raw["drafting"]
             platforms = drafting.get("platforms", ["linkedin"])
+            ai_only = bool(drafting.get("ai_only", True))
             for item in top_items:
                 is_new_brief = self.database.get_brief_for_item(item.id) is None
                 document, text_source, ai_result = "", "abstract_only", None
@@ -143,9 +146,9 @@ class ResearchPipeline:
                 if is_new_brief:
                     report.briefs += 1
 
-                bodies: dict[str, str] = {}
+                drafted = DraftResult()
                 if router and ai_result:
-                    bodies = ai_drafts(
+                    drafted = ai_drafts(
                         router,
                         item,
                         brief,
@@ -157,7 +160,7 @@ class ResearchPipeline:
                         x_max=int(drafting.get("x_max_characters", 270)),
                     )
                 for platform in platforms:
-                    if platform in bodies:
+                    if platform in drafted.bodies:
                         note = f"Brief from {text_source.replace('_', ' ')}; claims quote-verified; numbers checked against source."
                         if judge_reasons.get(item.id):
                             note += f" AI judge: {judge_reasons[item.id]}"
@@ -165,11 +168,19 @@ class ResearchPipeline:
                             item=item,
                             brief=brief,
                             platform=platform,
-                            body=bodies[platform],
+                            body=drafted.bodies[platform],
                             provider_name=router.last_client_name if router else "ai",
                             note=note,
                         )
+                        if platform == "linkedin" and drafted.card:
+                            draft.card_json = json.dumps(drafted.card, ensure_ascii=False)
                         report.ai_drafts += 1
+                    elif router and ai_only:
+                        # AI is configured but could not write this one (e.g. Gemini overloaded).
+                        # Skip instead of saving a weak template: the topic stays undrafted
+                        # and is retried by the next run.
+                        report.ai_skipped += 1
+                        continue
                     else:
                         draft = create_draft(
                             item=item,
@@ -278,7 +289,7 @@ class ResearchPipeline:
                 "limitations": brief.limitations,
             }
             output["verified_claims"] = [claim.claim_text for claim in claims]
-            output["drafts"] = ai_drafts(
+            drafted = ai_drafts(
                 router,
                 best,
                 brief,
@@ -287,6 +298,8 @@ class ResearchPipeline:
                 document,
                 platforms=self.settings.raw["drafting"].get("platforms", ["linkedin"]),
             )
+            output["drafts"] = drafted.bodies
+            output["card"] = drafted.card
         else:
             output["brief"] = None
         output.update(

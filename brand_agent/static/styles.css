@@ -94,3 +94,4 @@ dd { margin: 0; }
 }
 
 .linkedin-preview { white-space: pre-wrap; background: #ffffff; color: #191919; border-radius: 12px; padding: 18px; font: 0.95rem/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; margin-bottom: 6px; }
+.card-preview { width: 100%; max-width: 420px; border-radius: 12px; border: 1px solid var(--line); display: block; margin-bottom: 12px; }

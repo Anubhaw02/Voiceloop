@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any
 
@@ -119,7 +120,7 @@ def test_ai_drafts_retry_on_invented_number_then_accept():
     bad = {"linkedin": LINKEDIN.replace("37%", "80%"), "x": "KVShare: 37% lower p99 latency vs vLLM on production traces."}
     good = {"linkedin": LINKEDIN, "x": "KVShare: 37% lower p99 latency vs vLLM on production traces."}
     client = FakeClient([bad, good])
-    drafts = ai_drafts(LLMRouter([client]), item, brief, claims, {}, ABSTRACT, platforms=["linkedin", "x"])
+    drafts = ai_drafts(LLMRouter([client]), item, brief, claims, {}, ABSTRACT, platforms=["linkedin", "x"]).bodies
     assert set(drafts) == {"linkedin", "x"}
     assert "80%" in client.prompts[1] and "numbers not in the source" in client.prompts[1]
     assert drafts["linkedin"].endswith(f"Source: {item.url}")
@@ -270,9 +271,13 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
-@pytest.mark.parametrize("ai_works", [True, False])
-def test_pipeline_uses_ai_and_falls_back_to_templates(tmp_path: Path, monkeypatch, ai_works: bool):
+@pytest.mark.parametrize(
+    ("ai_works", "ai_only"),
+    [(True, True), (False, True), (False, False)],
+)
+def test_pipeline_ai_drafts_skip_or_template(tmp_path: Path, monkeypatch, ai_works: bool, ai_only: bool):
     settings = _settings(tmp_path)
+    settings.raw["drafting"]["ai_only"] = ai_only
     database = Database(settings.database_path)
     database.initialize()
     item = make_item("item_pipe", score=80)
@@ -284,7 +289,11 @@ def test_pipeline_uses_ai_and_falls_back_to_templates(tmp_path: Path, monkeypatc
         responses: list[Any] = [
             {"ratings": [{"id": "item_pipe", "novelty": 8, "real_world_value": 8, "evidence_strength": 8, "brand_fit": 8, "hype_risk": 0, "reason": "useful"}]},
             GOOD_BRIEF,
-            {"linkedin": LINKEDIN, "x": "KVShare: 37% lower p99 latency vs vLLM on production traces."},
+            {
+                "linkedin": LINKEDIN,
+                "x": "KVShare: 37% lower p99 latency vs vLLM on production traces.",
+                "card": {"headline": "Sharing KV caches beats buying more GPUs", "stat": "37%", "stat_label": "lower p99 latency vs vLLM"},
+            },
         ]
     else:
         responses = [LLMError("quota")] * 3
@@ -295,13 +304,21 @@ def test_pipeline_uses_ai_and_falls_back_to_templates(tmp_path: Path, monkeypatc
 
     assert report.status in {"completed", "completed_with_warnings"}
     drafts = database.list_drafts(limit=10)
-    assert {draft.platform for draft in drafts} == {"linkedin", "x"}
     if ai_works:
+        assert {draft.platform for draft in drafts} == {"linkedin", "x"}
         assert report.ai_judged == 1 and report.ai_briefs == 1 and report.ai_drafts == 2
         assert all("gemini/fake" in draft.rationale for draft in drafts)
-        assert any(draft.body.startswith("Most inference cost") for draft in drafts)
+        linkedin = next(draft for draft in drafts if draft.platform == "linkedin")
+        assert linkedin.body.startswith("Most inference cost")
+        card = json.loads(linkedin.card_json)
+        assert card["stat"] == "37%" and card["enabled"] is True
+        assert next(draft for draft in drafts if draft.platform == "x").card_json is None
+    elif ai_only:
+        # AI configured but unavailable: no weak template drafts; topic retried next run.
+        assert drafts == [] and report.ai_skipped == 2
+        assert "item_pipe" not in database.drafted_item_ids()
     else:
-        assert report.ai_drafts == 0
+        assert {draft.platform for draft in drafts} == {"linkedin", "x"}
         assert all("evidence_first_template" in draft.rationale for draft in drafts)
         assert any("AI" in error for error in report.errors)
 
@@ -314,7 +331,7 @@ def test_long_x_draft_is_trimmed_at_sentence_boundary():
     drafts = ai_drafts(
         LLMRouter([FakeClient([{"linkedin": LINKEDIN, "x": long_x}])]),
         item, brief, claims, {}, ABSTRACT, platforms=["linkedin", "x"],
-    )
+    ).bodies
     assert drafts["x"].startswith("KVShare cuts p99 latency 37%")
     assert len(drafts["x"]) <= 270
     assert drafts["x"].split("\n")[0].endswith(".")  # whole sentences only

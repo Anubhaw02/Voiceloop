@@ -10,6 +10,7 @@ import json
 import re
 import unicodedata
 import uuid
+from dataclasses import dataclass, field
 from typing import Any
 
 from .llm import LLMError, LLMRouter
@@ -211,6 +212,90 @@ Abstract (untrusted): {item.abstract}
 
 
 # -------------------------------------------------------------------- drafts
+@dataclass
+class DraftResult:
+    bodies: dict[str, str] = field(default_factory=dict)  # platform -> final text
+    card: dict[str, Any] | None = None  # insight-card data for the LinkedIn image
+
+
+# Phrases that make posts read as generic AI content.
+CLICHES = (
+    "game-changer", "game changer", "revolutionary", "revolutionize", "in today's", "fast-paced",
+    "delve", "dive in", "dive into", "deep dive", "unlock", "landscape", "paradigm", "cutting-edge",
+    "cutting edge", "mind-blowing", "here's the thing", "buckle up", "let that sink in", "the future is here",
+)
+STATUS_NOTES = {
+    "preprint": "Preprint · not yet peer reviewed",
+    "official": "Company report · not independently reviewed",
+    "peer": "Peer reviewed",
+}
+
+
+def _status_note(item: ResearchItem) -> str:
+    status = item.publication_status
+    if status.startswith("preprint"):
+        return STATUS_NOTES["preprint"]
+    if "official" in status:
+        return STATUS_NOTES["official"]
+    if "peer" in status and "verify" not in status:
+        return STATUS_NOTES["peer"]
+    return ""
+
+
+def _style_issues(body: str) -> list[str]:
+    issues: list[str] = []
+    lowered = body.lower()
+    if found := [phrase for phrase in CLICHES if phrase in lowered]:
+        issues.append("cliche phrases: " + ", ".join(found))
+    first_line = next((line for line in body.splitlines() if line.strip()), "")
+    if len(first_line.replace("**", "")) > 160:
+        issues.append("hook (first line) longer than 160 characters; LinkedIn cuts it before 'see more'")
+    if body.count("**") // 2 > 4:
+        issues.append("too much bold; bold only the hook and the three labels")
+    return issues
+
+
+def _with_source(body: str, url: str) -> str:
+    """Puts 'Source: <url>' above a trailing hashtag line, else at the end."""
+    lines = body.rstrip().splitlines()
+    if lines and lines[-1].strip().startswith("#"):
+        return "\n".join(lines[:-1]).rstrip() + f"\n\nSource: {url}\n\n" + lines[-1].strip()
+    return body.rstrip() + f"\n\nSource: {url}"
+
+
+def build_card(raw: Any, item: ResearchItem, profile: dict[str, Any], allowed_source: str) -> dict[str, Any] | None:
+    """Validates the model's card text. Every number must appear in the source."""
+    from .cards import TOPIC_LABELS
+
+    if not isinstance(raw, dict):
+        return None
+    headline = " ".join(str(raw.get("headline", "")).replace("**", "").split())
+    if not 15 <= len(headline) <= 110 or forbidden_phrases(headline) or unsupported_numbers(headline, allowed_source):
+        return None
+    stat = " ".join(str(raw.get("stat", "")).split())
+    label = " ".join(str(raw.get("stat_label", "")).split())
+    if (
+        not stat
+        or len(stat) > 12
+        or not re.search(r"\d", stat)
+        or unsupported_numbers(f"{stat} {label}", allowed_source)
+        or len(label) > 70
+    ):
+        stat, label = "", ""
+    display_name = profile.get("identity", {}).get("display_name", "")
+    source_name = item.source_name if item.source_name and item.source_name not in item.title else ""
+    return {
+        "enabled": True,
+        "topic": TOPIC_LABELS.get(item.topic, "CLOUD × AI"),
+        "headline": headline,
+        "stat": stat,
+        "stat_label": label,
+        "source": item.title + (f" ({source_name})" if source_name else ""),
+        "status_note": _status_note(item),
+        "author": f"{display_name} · Cloud × AI research" if display_name else "Cloud × AI research",
+    }
+
+
 def ai_drafts(
     router: LLMRouter,
     item: ResearchItem,
@@ -222,8 +307,8 @@ def ai_drafts(
     platforms: list[str],
     linkedin_max: int = 2600,
     x_max: int = 270,
-) -> dict[str, str]:
-    """Returns {platform: final body} for platforms whose draft passed every check."""
+) -> DraftResult:
+    """Posts that passed every check, plus validated insight-card text."""
     voice = profile.get("voice", {})
     identity = profile.get("identity", {})
     x_budget = x_max - len(item.url) - 1
@@ -237,32 +322,48 @@ def ai_drafts(
         "industry_implications": brief.industry_implications,
         "verified_claims": [claim.claim_text for claim in claims],
     }
+    status_rule = (
+        "Say plainly that this is a preprint, not yet peer reviewed."
+        if preprint
+        else "Mention the publication status briefly."
+    )
     base_prompt = f"""
-Write posts for the owner's personal LinkedIn and X accounts about this research.
+Write posts for the owner's personal LinkedIn and X accounts about this research, plus text for an image card.
 
 Owner positioning: {identity.get("positioning", "")}
-Voice: {", ".join(voice.get("qualities", []))}
+Voice: {", ".join(voice.get("qualities", []))}. Write like a sharp engineer talking to peers: plain words,
+short sentences, concrete nouns. Not like a marketer, not like an AI assistant.
 Avoid: {", ".join(voice.get("avoid", []))}
 
 Hard rules:
-- Use ONLY facts in the provided brief and verified claims. Every number must come from them.
-- Attribute results to the authors/source ("the authors report", "the paper shows"). Never present them as the owner's work.
+- Use ONLY facts in the provided brief and verified claims. Every number must come from them, written the same way.
+- Attribute results to the authors ("the authors report", "the paper shows"). Never present them as the owner's work.
 - Never invent personal experience, projects, employers, clients or results. Do not write "I built", "at my company", etc.
-- Label opinion clearly (e.g. "My read:"). Opinions must follow from the evidence.
-- {"State plainly that this is a preprint, not yet peer reviewed." if preprint else "Mention the publication status briefly."}
-- No hype words (revolutionary, game-changer, mind-blowing), no emojis, at most 3 hashtags, no URLs (the link is added automatically).
+- {status_rule}
+- No emojis, no em dashes, no URLs (the link is added automatically), no hype or cliches
+  (e.g. game-changer, revolutionary, delve, unlock, landscape, "in today's fast-paced world").
 
-"linkedin": 900-1800 characters, formatted to be easy to scan on a phone:
-- First line: a specific, curiosity-creating hook (not a cliche), wrapped in **double asterisks** for bold. Then a blank line.
-- The problem, what is new, one or two key results, why it matters for cloud/AI systems in industry, an honest limitation.
-- Use 2-3 short section labels in **bold** on their own line (e.g. **What's new**, **Why it matters**, **The catch**).
-- Where listing results, use short lines starting with "→ ".
-- Bold only the hook and labels (never whole paragraphs). One idea per short paragraph.
-- End with a question for founders/engineers, then 2-3 relevant hashtags on the last line.
-"x": one or two short sentences, about {max(80, x_budget - 60)} characters and never more than {x_budget}.
-One sharp insight with one concrete result. Count the characters.
+"linkedin": 700-1300 characters, in exactly this structure (blank line between blocks):
+1. Hook: ONE line, under 140 characters, wrapped in **double asterisks**. The most surprising specific finding,
+   ideally with its number. It must make sense on its own, because LinkedIn hides the rest behind "see more".
+2. Context: one sentence saying who did what (e.g. "A new preprint introduces X, a ...").
+3. **What they found** on its own line, then 2-3 lines each starting with "→ " and stating one concrete result.
+4. **My take** on its own line, then 2-3 short sentences on why this matters for teams running cloud/AI systems
+   in industry. This is the owner's interpretation: make it specific and defensible, not generic.
+5. **The catch** on its own line, then one or two sentences with the most important limitation.
+6. A specific question that invites engineers or founders to share their own experience (not yes/no).
+7. Last line: 2-3 relevant hashtags.
+Bold ONLY the hook and the three labels.
 
-Return: {{"linkedin": "...", "x": "..."}}
+"x": one or two short sentences, about {max(80, x_budget - 60)} characters, never more than {x_budget}.
+The single sharpest insight with one concrete result. No hashtags or one at most. No bold markers.
+
+"card": text for an image shown with the LinkedIn post:
+- "headline": under 90 characters, a punchy factual takeaway (different wording from the hook).
+- "stat": the single most striking number exactly as written in the source (e.g. "41.3/100", "37%", "2.1x"), or "" if none.
+- "stat_label": under 60 characters saying what that number measures.
+
+Return: {{"linkedin": "...", "x": "...", "card": {{"headline": "...", "stat": "...", "stat_label": "..."}}}}
 
 Title: {item.title}
 Publication status: {item.publication_status}
@@ -271,7 +372,7 @@ Brief and verified claims:
 """.strip()
 
     allowed_source = f"{source_text}\n{item.abstract}\n{item.title}"
-    results: dict[str, str] = {}
+    result = DraftResult()
     feedback = ""
     for _attempt in range(2):
         try:
@@ -280,10 +381,11 @@ Brief and verified claims:
             break
         problems: list[str] = []
         for platform in platforms:
-            if platform in results:
+            if platform in result.bodies:
                 continue
             body = str(data.get(platform, "")).strip()
             body = re.sub(r"https?://\S+", "", body).strip()
+            body = re.sub(r"\s*[—–]\s*", " - ", body)  # em/en dashes read as AI-written
             if platform != "linkedin":
                 body = body.replace("**", "")  # bold conversion exists only for LinkedIn
             limit = linkedin_max - len(item.url) - 12 if platform == "linkedin" else x_budget
@@ -298,14 +400,17 @@ Brief and verified claims:
                 issues.append("numbers not in the source: " + ", ".join(missing))
             if bad := forbidden_phrases(body):
                 issues.append("forbidden phrases: " + ", ".join(bad))
+            if platform == "linkedin":
+                issues.extend(_style_issues(body))
             if scan_untrusted_text(body):
                 issues.append("instruction-like content")
             if issues:
                 problems.append(f"{platform}: " + "; ".join(issues))
                 continue
-            suffix = f"\n\nSource: {item.url}" if platform == "linkedin" else f"\n{item.url}"
-            results[platform] = body + suffix
-        if not problems or len(results) == len(platforms):
+            result.bodies[platform] = _with_source(body, item.url) if platform == "linkedin" else f"{body}\n{item.url}"
+            if platform == "linkedin" and result.card is None:
+                result.card = build_card(data.get("card"), item, profile, allowed_source)
+        if not problems or len(result.bodies) == len(platforms):
             break
         feedback = "\n\nYour previous answer failed these checks; fix them:\n- " + "\n- ".join(problems)
-    return results
+    return result
