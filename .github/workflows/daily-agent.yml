@@ -7,14 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "daily = full run (writes drafts); ai-preview = test AI on one item, writes nothing; ai-check = provider diagnostics"
+        description: "daily = full run (writes drafts); ai-preview = test AI on one item, writes nothing; ai-check = Gemini model diagnostics"
         type: choice
         options: [daily, ai-preview, ai-check]
         default: daily
 
 permissions:
   contents: read
-  models: read  # free GitHub Models fallback via GITHUB_TOKEN
 
 concurrency:
   group: frontier-brand-agent-daily
@@ -32,7 +31,6 @@ jobs:
       REMINDER_EMAIL: ${{ secrets.REMINDER_EMAIL }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

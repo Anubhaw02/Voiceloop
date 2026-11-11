@@ -1,4 +1,4 @@
-"""Free-tier LLM access with ordered fallback.
+"""Free-tier LLM access (Gemini API) with model fallback.
 
 The model only ever returns text (JSON). It has no tools and cannot take
 actions; every output is validated by code before it is stored.
@@ -51,21 +51,25 @@ def _version_key(name: str) -> tuple[float, int]:
 
 
 class GeminiClient:
-    """Gemini API (Google AI Studio key). Model names change often, so the
-    client asks the API which Flash models this key can use."""
+    """Gemini API with a Google AI Studio key (free tier).
+
+    Model names change often, so the client asks the API which Flash models
+    this key can use. Free-tier capacity varies per model: when a model is
+    overloaded (503) or hangs, it is skipped for the rest of the run and the
+    next model is tried. Rate limits (429) get one wait-and-retry.
+    """
 
     base_url = "https://generativelanguage.googleapis.com/v1beta"
     max_document_chars = 120_000
     _excluded = ("image", "tts", "audio", "live", "embedding", "vision", "learnlm", "robotics", "computer-use")
 
-    retryable = {429, 500, 503}
-
-    def __init__(self, api_key: str, *, preferred_model: str = "", min_interval_seconds: float = 6.0, timeout: float = 150):
+    def __init__(self, api_key: str, *, preferred_model: str = "", min_interval_seconds: float = 6.0, timeout: float = 120):
         self._headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
         self.preferred_model = preferred_model.strip().removeprefix("models/")
         self.min_interval_seconds = min_interval_seconds
         self.timeout = timeout
         self._models: list[str] | None = None
+        self._unavailable: set[str] = set()
         self._last_call = 0.0
         self.model_used = ""
 
@@ -79,16 +83,23 @@ class GeminiClient:
         response = httpx.get(f"{self.base_url}/models", params={"pageSize": 1000}, headers=self._headers, timeout=30)
         if response.status_code in (401, 403):
             raise LLMError(f"Gemini API key rejected (HTTP {response.status_code})")
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise LLMError(f"Gemini model list failed (HTTP {response.status_code})")
         names = [
             model["name"].removeprefix("models/")
             for model in response.json().get("models", [])
             if "generateContent" in model.get("supportedGenerationMethods", [])
         ]
         flash = [n for n in names if "flash" in n and not any(word in n for word in self._excluded)]
-        full = sorted((n for n in flash if "lite" not in n), key=_version_key, reverse=True)
-        lite = sorted((n for n in flash if "lite" in n), key=_version_key, reverse=True)
-        ordered = full[:2] + lite[:1]
+        # One entry per version: prefer the stable name over previews of the same version.
+        best_per_version: dict[tuple[float, bool], str] = {}
+        for name in sorted(flash, key=_version_key, reverse=True):
+            key = (_version_key(name)[0], "lite" in name)
+            best_per_version.setdefault(key, name)
+        full = sorted((n for (v, lite), n in best_per_version.items() if not lite), key=_version_key, reverse=True)
+        lite = sorted((n for (v, lite), n in best_per_version.items() if lite), key=_version_key, reverse=True)
+        # Newest full Flash models first, then lite models (often less congested).
+        ordered = full[:4] + lite[:2]
         if self.preferred_model and self.preferred_model in names:
             ordered = [self.preferred_model] + [n for n in ordered if n != self.preferred_model]
         if not ordered:
@@ -115,6 +126,8 @@ class GeminiClient:
         }
         failures: list[str] = []
         for model in self.candidate_models():
+            if model in self._unavailable:
+                continue
             for attempt in range(2):
                 self._pace()
                 try:
@@ -126,16 +139,21 @@ class GeminiClient:
                     )
                 except httpx.HTTPError as exc:
                     failures.append(f"{model}: {type(exc).__name__}")
+                    self._unavailable.add(model)
                     break
-                if response.status_code in self.retryable and attempt == 0:
-                    default = "20" if response.status_code == 429 else "15"
+                if response.status_code == 429 and attempt == 0:
                     try:
-                        delay = min(60.0, float(response.headers.get("retry-after", default) or default))
+                        delay = min(60.0, float(response.headers.get("retry-after", "20") or 20))
                     except ValueError:
-                        delay = float(default)
-                    LOGGER.warning("Gemini %s returned HTTP %s; retrying in %.0fs", model, response.status_code, delay)
+                        delay = 20.0
+                    LOGGER.warning("Gemini %s rate-limited; retrying in %.0fs", model, delay)
                     time.sleep(delay)
                     continue
+                if response.status_code in (429, 500, 503, 504):
+                    LOGGER.warning("Gemini %s unavailable (HTTP %s); skipping it for this run", model, response.status_code)
+                    failures.append(f"{model}: HTTP {response.status_code}")
+                    self._unavailable.add(model)
+                    break
                 if response.status_code >= 400:
                     failures.append(f"{model}: HTTP {response.status_code}")
                     break
@@ -151,76 +169,14 @@ class GeminiClient:
                     break
                 parts = (candidates[0].get("content") or {}).get("parts") or []
                 text = "".join(part.get("text", "") for part in parts if not part.get("thought"))
+                try:
+                    result = _parse_json(text)
+                except LLMError as exc:
+                    failures.append(f"{model}: {exc}")
+                    break
                 self.model_used = model
-                return _parse_json(text)
-        raise LLMError("Gemini failed: " + "; ".join(failures))
-
-
-class GitHubModelsClient:
-    """GitHub Models, free inside GitHub Actions via GITHUB_TOKEN (models: read)."""
-
-    base_url = "https://models.github.ai"
-    max_document_chars = 20_000  # free-tier request size is small
-    preferred = ("openai/gpt-4.1-mini", "openai/gpt-4o-mini", "openai/gpt-4.1", "openai/gpt-4o")
-
-    def __init__(self, token: str, *, timeout: float = 120):
-        self._headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-        self.timeout = timeout
-        self._model: str | None = None
-
-    @property
-    def name(self) -> str:
-        return f"github-models/{self._model}" if self._model else "github-models"
-
-    def _choose_model(self) -> str:
-        if self._model:
-            return self._model
-        chosen = self.preferred[0]
-        try:
-            response = httpx.get(f"{self.base_url}/catalog/models", headers=self._headers, timeout=30)
-            response.raise_for_status()
-            available = {model.get("id") for model in response.json()}
-            chosen = next((model for model in self.preferred if model in available), chosen)
-        except Exception as exc:  # catalog is optional; fall back to the default id
-            LOGGER.info("GitHub Models catalog unavailable (%s); using %s", type(exc).__name__, chosen)
-        self._model = chosen
-        return chosen
-
-    def generate_json(self, *, system: str, prompt: str, max_output_tokens: int) -> dict[str, Any]:
-        model = self._choose_model()
-        try:
-            response = httpx.post(
-                f"{self.base_url}/inference/chat/completions",
-                headers=self._headers,
-                json={
-                    "model": model,
-                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0.3,
-                    "max_tokens": min(max_output_tokens, 4000),
-                },
-                timeout=self.timeout,
-            )
-        except httpx.HTTPError as exc:
-            raise LLMError(f"GitHub Models failed: {type(exc).__name__}") from exc
-        if response.status_code >= 400:
-            raise LLMError(f"GitHub Models failed: HTTP {response.status_code}")
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            content_type = response.headers.get("content-type", "unknown")
-            raise LLMError(
-                f"GitHub Models returned non-JSON ({content_type}, {len(response.content)} bytes)"
-            ) from exc
-        choices = payload.get("choices") or []
-        if not choices:
-            raise LLMError("GitHub Models returned no choices")
-        return _parse_json(choices[0].get("message", {}).get("content", ""))
+                return result
+        raise LLMError("Gemini failed: " + ("; ".join(failures) or "all models unavailable this run"))
 
 
 class LLMRouter:
@@ -273,63 +229,40 @@ class LLMRouter:
 
 
 def diagnose() -> list[dict[str, Any]]:
-    """Tiny request to every configured provider/model, reporting status,
+    """Tiny request to every candidate Gemini model, reporting status,
     latency and the start of the body. Never prints credentials."""
     results: list[dict[str, Any]] = []
-    tiny = 'Return exactly this JSON object: {"ok": true}'
-
-    def probe(label: str, method: str, url: str, headers: dict[str, str], **kwargs: Any) -> None:
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not key:
+        return [{"probe": "gemini", "error": "GEMINI_API_KEY not set"}]
+    client = GeminiClient(key)
+    try:
+        models = client.candidate_models()
+        results.append({"probe": "gemini models", "candidates": models})
+    except Exception as exc:
+        return [{"probe": "gemini models", "error": str(exc)[:300]}]
+    for model in models:
         started = time.monotonic()
         try:
-            response = httpx.request(method, url, headers=headers, timeout=90, **kwargs)
+            response = httpx.post(
+                f"{GeminiClient.base_url}/models/{model}:generateContent",
+                headers=client._headers,
+                json={
+                    "contents": [{"role": "user", "parts": [{"text": 'Return exactly this JSON object: {"ok": true}'}]}],
+                    "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": 200},
+                },
+                timeout=90,
+            )
             results.append(
                 {
-                    "probe": label,
+                    "probe": model,
                     "status": response.status_code,
                     "seconds": round(time.monotonic() - started, 1),
-                    "content_type": response.headers.get("content-type", ""),
-                    "body_start": response.text[:300],
+                    "body_start": response.text[:200],
                 }
             )
         except Exception as exc:
-            results.append({"probe": label, "error": type(exc).__name__, "seconds": round(time.monotonic() - started, 1)})
-
-    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if gemini_key:
-        client = GeminiClient(gemini_key)
-        try:
-            models = client.candidate_models()
-            results.append({"probe": "gemini models", "candidates": models})
-        except Exception as exc:
-            models = []
-            results.append({"probe": "gemini models", "error": str(exc)[:300]})
-        for model in models:
-            probe(
-                f"gemini {model}",
-                "POST",
-                f"{GeminiClient.base_url}/models/{model}:generateContent",
-                client._headers,
-                json={
-                    "contents": [{"role": "user", "parts": [{"text": tiny}]}],
-                    "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": 200},
-                },
-            )
-    else:
-        results.append({"probe": "gemini", "error": "GEMINI_API_KEY not set"})
-
-    token = os.getenv("GITHUB_TOKEN", "").strip()
-    if token:
-        github = GitHubModelsClient(token)
-        probe("github catalog", "GET", f"{GitHubModelsClient.base_url}/catalog/models", github._headers)
-        probe(
-            "github chat openai/gpt-4.1-mini",
-            "POST",
-            f"{GitHubModelsClient.base_url}/inference/chat/completions",
-            github._headers,
-            json={"model": "openai/gpt-4.1-mini", "messages": [{"role": "user", "content": tiny}], "max_tokens": 50},
-        )
-    else:
-        results.append({"probe": "github models", "error": "GITHUB_TOKEN not set"})
+            results.append({"probe": model, "error": type(exc).__name__, "seconds": round(time.monotonic() - started, 1)})
     return results
 
 
@@ -339,19 +272,12 @@ def build_router(config: dict[str, Any]) -> LLMRouter | None:
     llm_config = config.get("llm", {}) or {}
     if not llm_config.get("enabled", True):
         return None
-    clients: list[LLMClient] = []
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if gemini_key:
-        clients.append(
-            GeminiClient(
-                gemini_key,
-                preferred_model=os.getenv("GEMINI_MODEL", str(llm_config.get("gemini_model", ""))),
-                min_interval_seconds=float(llm_config.get("min_seconds_between_calls", 6)),
-            )
-        )
-    github_token = os.getenv("GITHUB_TOKEN", "").strip()
-    if github_token and os.getenv("GITHUB_ACTIONS") == "true" and llm_config.get("github_models_fallback", True):
-        clients.append(GitHubModelsClient(github_token))
-    if not clients:
+    if not gemini_key:
         return None
-    return LLMRouter(clients, max_calls=int(llm_config.get("max_calls_per_run", 30)))
+    client = GeminiClient(
+        gemini_key,
+        preferred_model=os.getenv("GEMINI_MODEL", str(llm_config.get("gemini_model", ""))),
+        min_interval_seconds=float(llm_config.get("min_seconds_between_calls", 6)),
+    )
+    return LLMRouter([client], max_calls=int(llm_config.get("max_calls_per_run", 30)))

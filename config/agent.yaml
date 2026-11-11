@@ -116,11 +116,10 @@ drafting:
   max_pending_drafts: 10
 
 llm:
-  # Free providers, tried in order: Gemini (GEMINI_API_KEY), then GitHub Models
-  # (GITHUB_TOKEN inside GitHub Actions). Without either, rule-based mode is used.
+  # Free Gemini API (GEMINI_API_KEY). Several Flash models are tried in order;
+  # overloaded ones are skipped. Without a key, rule-based mode is used.
   enabled: true
   gemini_model: ""            # empty = newest Flash model the key can use
-  github_models_fallback: true
   max_calls_per_run: 30
   min_seconds_between_calls: 6
 

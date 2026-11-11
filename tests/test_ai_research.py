@@ -178,23 +178,48 @@ def test_gemini_picks_newest_stable_flash_model(monkeypatch):
             }
 
     monkeypatch.setattr("brand_agent.llm.httpx.get", lambda *a, **k: Response())
+    # Stable beats a preview of the same version; older Flash kept as fallback; lite last.
     assert GeminiClient("key").candidate_models() == [
         "gemini-3.5-flash",
-        "gemini-3.5-flash-preview-09",
+        "gemini-2.5-flash",
         "gemini-3.5-flash-lite",
     ]
 
 
+def test_gemini_skips_overloaded_model_for_rest_of_run(monkeypatch):
+    client = GeminiClient("key", min_interval_seconds=0)
+    client._models = ["busy-flash", "free-flash"]
+    calls: list[str] = []
+
+    class Response:
+        def __init__(self, status: int, payload: dict | None = None):
+            self.status_code = status
+            self._payload = payload or {}
+            self.headers: dict[str, str] = {}
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, **kwargs):
+        model = url.split("/models/")[1].split(":")[0]
+        calls.append(model)
+        if model == "busy-flash":
+            return Response(503)
+        return Response(200, {"candidates": [{"content": {"parts": [{"text": '{"ok": true}'}]}}]})
+
+    monkeypatch.setattr("brand_agent.llm.httpx.post", fake_post)
+    assert client.generate_json(system="s", prompt="p", max_output_tokens=10) == {"ok": True}
+    assert client.generate_json(system="s", prompt="p", max_output_tokens=10) == {"ok": True}
+    assert calls == ["busy-flash", "free-flash", "free-flash"]  # busy model tried once only
+    assert client.name == "gemini/free-flash"
+
+
 def test_build_router_requires_a_key(monkeypatch):
-    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)  # CI sets this itself
     assert build_router({}) is None
     monkeypatch.setenv("GEMINI_API_KEY", "test")
     router = build_router({})
     assert router is not None and router.names == ["gemini"]
-    monkeypatch.setenv("GITHUB_TOKEN", "gh")
-    assert build_router({}).names == ["gemini"]  # GitHub Models only inside Actions
-    monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    assert build_router({}).names == ["gemini", "github-models"]
+    assert build_router({"llm": {"enabled": False}}) is None
 
 
 def _settings(tmp_path: Path) -> Settings:
