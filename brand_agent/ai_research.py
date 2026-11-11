@@ -62,6 +62,18 @@ def unsupported_numbers(text: str, source: str) -> list[str]:
     return missing
 
 
+def _trim_to_sentences(text: str, limit: int) -> str:
+    """Keeps whole sentences that fit; never cuts mid-sentence (which could
+    change a claim's meaning). Returns the input unchanged if nothing fits."""
+    kept = ""
+    for sentence in re.split(r"(?<=[.!?])\s+", text.strip()):
+        candidate = f"{kept} {sentence}".strip()
+        if len(candidate) > limit:
+            break
+        kept = candidate
+    return kept or text
+
+
 def forbidden_phrases(text: str) -> list[str]:
     return [m.group(0) for pattern in FORBIDDEN_PATTERNS for m in [pattern.search(text or "")] if m]
 
@@ -150,7 +162,8 @@ and:
 - "founder_questions": 3-4 sharp questions a technical founder should ask before building on this
 - "claims": 3-6 objects {{"claim": "plain-language finding", "quote": "exact supporting sentence copied verbatim from the source text, 8-40 words"}}
 
-Quotes must be copied character-for-character from the source; claims without an exact quote will be discarded.
+Quotes must be copied character-for-character from the source and must directly state the claim itself
+(not a nearby sentence); claims without an exact supporting quote will be discarded.
 
 Abstract (untrusted): {item.abstract}
 """.strip()
@@ -242,7 +255,8 @@ Hard rules:
 "linkedin": 900-1800 characters. A specific opening line (not a cliche), the problem, what is new, one or two key results,
 why it matters for cloud/AI systems in industry, an honest limitation, and a closing question for founders/engineers.
 Short paragraphs.
-"x": at most {x_budget} characters. One sharp insight with one concrete result.
+"x": one or two short sentences, about {max(80, x_budget - 60)} characters and never more than {x_budget}.
+One sharp insight with one concrete result. Count the characters.
 
 Return: {{"linkedin": "...", "x": "..."}}
 
@@ -267,6 +281,8 @@ Brief and verified claims:
             body = str(data.get(platform, "")).strip()
             body = re.sub(r"https?://\S+", "", body).strip()
             limit = linkedin_max - len(item.url) - 12 if platform == "linkedin" else x_budget
+            if platform == "x" and len(body) > limit:
+                body = _trim_to_sentences(body, limit)
             issues: list[str] = []
             if len(body) < (400 if platform == "linkedin" else 60):
                 issues.append("too short")

@@ -280,3 +280,17 @@ def test_pipeline_uses_ai_and_falls_back_to_templates(tmp_path: Path, monkeypatc
         assert report.ai_drafts == 0
         assert all("evidence_first_template" in draft.rationale for draft in drafts)
         assert any("AI" in error for error in report.errors)
+
+
+def test_long_x_draft_is_trimmed_at_sentence_boundary():
+    item = make_item()
+    router = LLMRouter([FakeClient([GOOD_BRIEF])])
+    brief, claims = ai_brief(router, item, ABSTRACT, "full_text")
+    long_x = "KVShare cuts p99 latency 37% vs vLLM on production traces. " + "It also shares KV caches across tenants in a new way. " * 6
+    drafts = ai_drafts(
+        LLMRouter([FakeClient([{"linkedin": LINKEDIN, "x": long_x}])]),
+        item, brief, claims, {}, ABSTRACT, platforms=["linkedin", "x"],
+    )
+    assert drafts["x"].startswith("KVShare cuts p99 latency 37%")
+    assert len(drafts["x"]) <= 270
+    assert drafts["x"].split("\n")[0].endswith(".")  # whole sentences only
