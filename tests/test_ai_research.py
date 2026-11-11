@@ -214,6 +214,30 @@ def test_gemini_skips_overloaded_model_for_rest_of_run(monkeypatch):
     assert client.name == "gemini/free-flash"
 
 
+def test_gemini_gives_all_models_one_second_chance(monkeypatch):
+    client = GeminiClient("key", min_interval_seconds=0)
+    client.second_chance_wait_seconds = 0
+    client._models = ["a-flash"]
+    statuses = iter([503, 200, 503])
+
+    class Response:
+        def __init__(self, status: int):
+            self.status_code = status
+            self.headers: dict[str, str] = {}
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": '{"ok": true}'}]}}]}
+
+    monkeypatch.setattr("brand_agent.llm.httpx.post", lambda url, **kwargs: Response(next(statuses)))
+    with pytest.raises(LLMError):
+        client.generate_json(system="s", prompt="p", max_output_tokens=10)  # 503 -> skipped
+    assert client.generate_json(system="s", prompt="p", max_output_tokens=10) == {"ok": True}  # wait, retry -> 200
+    with pytest.raises(LLMError):
+        client.generate_json(system="s", prompt="p", max_output_tokens=10)  # 503 again -> skipped
+    with pytest.raises(LLMError, match="all models unavailable"):
+        client.generate_json(system="s", prompt="p", max_output_tokens=10)  # no third chance, no request
+
+
 def test_build_router_requires_a_key(monkeypatch):
     assert build_router({}) is None
     monkeypatch.setenv("GEMINI_API_KEY", "test")

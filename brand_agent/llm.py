@@ -70,6 +70,8 @@ class GeminiClient:
         self.timeout = timeout
         self._models: list[str] | None = None
         self._unavailable: set[str] = set()
+        self._second_chance_used = False
+        self.second_chance_wait_seconds = 45.0
         self._last_call = 0.0
         self.model_used = ""
 
@@ -125,7 +127,14 @@ class GeminiClient:
             },
         }
         failures: list[str] = []
-        for model in self.candidate_models():
+        models = self.candidate_models()
+        if all(model in self._unavailable for model in models) and not self._second_chance_used:
+            # Overload spikes are short: once per run, wait and give every model another chance.
+            self._second_chance_used = True
+            LOGGER.warning("All Gemini models overloaded; waiting %.0fs before one more pass", self.second_chance_wait_seconds)
+            time.sleep(self.second_chance_wait_seconds)
+            self._unavailable.clear()
+        for model in models:
             if model in self._unavailable:
                 continue
             for attempt in range(2):
