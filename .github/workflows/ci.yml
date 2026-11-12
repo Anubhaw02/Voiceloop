@@ -39,5 +39,12 @@ jobs:
             echo "::warning::RENDER_DEPLOY_HOOK secret not set; skipping Render deploy"
             exit 0
           fi
-          curl --fail --silent --show-error --max-time 30 -X POST "$RENDER_DEPLOY_HOOK" > /dev/null
-          echo "Render deploy triggered"
+          # Deploy this exact commit; print Render's reply (never the hook URL) on failure.
+          status=$(curl --silent --show-error --max-time 30 -o response.txt -w "%{http_code}" \
+            -X POST "${RENDER_DEPLOY_HOOK}&ref=${GITHUB_SHA}")
+          if [ "$status" -ge 400 ]; then
+            echo "::error::Render deploy hook returned HTTP $status"
+            head -c 500 response.txt; echo
+            exit 1
+          fi
+          echo "Render deploy triggered for ${GITHUB_SHA::7} (HTTP $status)"
