@@ -215,7 +215,12 @@ Abstract (untrusted): {item.abstract}
 @dataclass
 class DraftResult:
     bodies: dict[str, str] = field(default_factory=dict)  # platform -> final text
-    card: dict[str, Any] | None = None  # insight-card data for the LinkedIn image
+    card: dict[str, Any] | None = None  # insight-card data (fallback image)
+    doodle: dict[str, Any] | None = None  # hand-drawn diagram mirroring the post (preferred image)
+
+    @property
+    def image(self) -> dict[str, Any] | None:
+        return self.doodle or self.card
 
 
 # Phrases that make posts read as generic AI content.
@@ -296,6 +301,85 @@ def build_card(raw: Any, item: ResearchItem, profile: dict[str, Any], allowed_so
     }
 
 
+def _clean(value: Any, limit: int) -> str:
+    text = " ".join(str(value or "").replace("**", "").split())
+    return text if len(text) <= limit else ""
+
+
+def build_doodle(raw: Any, item: ResearchItem, profile: dict[str, Any], allowed_source: str) -> dict[str, Any] | None:
+    """Validates the model's diagram. All text is length-limited and every
+    number anywhere in the doodle must appear in the source."""
+    if not isinstance(raw, dict):
+        return None
+    layout = raw.get("layout")
+    title = _clean(raw.get("title"), 90)
+    caption = _clean(raw.get("caption"), 120)
+    if layout not in ("flow", "compare", "bars") or len(title) < 10:
+        return None
+    doodle: dict[str, Any] = {"kind": "doodle", "enabled": True, "layout": layout, "title": title, "caption": caption}
+    texts = [title, caption]
+
+    if layout == "flow":
+        nodes = []
+        for node in (raw.get("nodes") or [])[:5]:
+            if not isinstance(node, dict):
+                continue
+            label, note = _clean(node.get("label"), 45), _clean(node.get("note"), 40)
+            status = node.get("status") if node.get("status") in ("good", "bad", "neutral") else "neutral"
+            if label:
+                nodes.append({"label": label, "note": note, "status": status})
+                texts += [label, note]
+        if len(nodes) < 2:
+            return None
+        doodle["nodes"] = nodes
+    elif layout == "compare":
+        for side in ("left", "right"):
+            column = raw.get(side)
+            if not isinstance(column, dict):
+                return None
+            column_title = _clean(column.get("title"), 40)
+            points = [p for p in (_clean(point, 50) for point in (column.get("points") or [])[:4]) if p]
+            if not column_title or not points:
+                return None
+            doodle[side] = {"title": column_title, "points": points}
+            texts += [column_title, *points]
+    else:
+        bars = []
+        for bar in (raw.get("bars") or [])[:5]:
+            if not isinstance(bar, dict):
+                continue
+            label = _clean(bar.get("label"), 40)
+            try:
+                value = float(bar.get("value"))
+            except (TypeError, ValueError):
+                continue
+            if label and value >= 0:
+                bars.append({"label": label, "value": value, "highlight": bool(bar.get("highlight"))})
+                texts += [label, f"{value:g}"]
+        if len(bars) < 2:
+            return None
+        doodle["bars"] = bars
+        doodle["unit"] = _clean(raw.get("unit"), 8)
+        try:
+            doodle["max"] = float(raw["max"]) if raw.get("max") not in (None, "") else None
+        except (TypeError, ValueError):
+            doodle["max"] = None
+        if doodle["max"]:
+            texts.append(f"{doodle['max']:g}")
+
+    combined = " ".join(text for text in texts if text)
+    if forbidden_phrases(combined) or unsupported_numbers(combined, allowed_source) or scan_untrusted_text(combined):
+        return None
+    display_name = profile.get("identity", {}).get("display_name", "")
+    source_name = item.source_name if item.source_name and item.source_name not in item.title else ""
+    doodle.update(
+        source=item.title + (f" ({source_name})" if source_name else ""),
+        status_note=_status_note(item),
+        author=display_name,
+    )
+    return doodle
+
+
 def ai_drafts(
     router: LLMRouter,
     item: ResearchItem,
@@ -363,7 +447,18 @@ The single sharpest insight with one concrete result. No hashtags or one at most
 - "stat": the single most striking number exactly as written in the source (e.g. "41.3/100", "37%", "2.1x"), or "" if none.
 - "stat_label": under 60 characters saying what that number measures.
 
-Return: {{"linkedin": "...", "x": "...", "card": {{"headline": "...", "stat": "...", "stat_label": "..."}}}}
+"doodle": a simple hand-drawn whiteboard diagram that SHOWS the post's core idea at a glance.
+Pick the layout that fits best:
+- "flow": 2-5 steps of a process/pipeline, each {{"label" (under 40 chars), "note" (under 35 chars, optional),
+  "status": "good" | "bad" | "neutral"}}. Use good/bad to show what works vs what fails.
+- "compare": old way vs new way, "left"/"right" each {{"title" (under 35 chars), "points": 2-4 items under 45 chars}}.
+- "bars": 2-5 quantities from the paper, each {{"label" (under 35 chars), "value": number, "highlight": bool}},
+  plus "unit" (e.g. "%", "x", "/100") and optional "max".
+Always include "title" (under 80 chars, a question or claim) and "caption" (under 110 chars, the takeaway).
+Every number must come from the paper. Keep words few and concrete: it is a sketch, not a slide.
+
+Return: {{"linkedin": "...", "x": "...", "card": {{"headline": "...", "stat": "...", "stat_label": "..."}},
+"doodle": {{"layout": "flow", "title": "...", "nodes": [...], "caption": "..."}}}}
 
 Title: {item.title}
 Publication status: {item.publication_status}
@@ -410,6 +505,8 @@ Brief and verified claims:
             result.bodies[platform] = _with_source(body, item.url) if platform == "linkedin" else f"{body}\n{item.url}"
             if platform == "linkedin" and result.card is None:
                 result.card = build_card(data.get("card"), item, profile, allowed_source)
+            if platform == "linkedin" and result.doodle is None:
+                result.doodle = build_doodle(data.get("doodle"), item, profile, allowed_source)
         if not problems or len(result.bodies) == len(platforms):
             break
         feedback = "\n\nYour previous answer failed these checks; fix them:\n- " + "\n- ".join(problems)

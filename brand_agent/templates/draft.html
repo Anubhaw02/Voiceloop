@@ -70,7 +70,7 @@
         {% if card %}
         <p class="eyebrow" style="margin-top:24px">IMAGE ATTACHED TO THE POST</p>
         {% if card.enabled %}
-        <img class="card-preview" src="/drafts/{{ draft.id }}/card.png" alt="Insight card: {{ card.headline }}">
+        <img class="card-preview" src="/drafts/{{ draft.id }}/card.png" alt="Post image: {{ card.title or card.headline }}">
         {% else %}
         <p class="empty">Image turned off: this post will be published as text only.</p>
         {% endif %}

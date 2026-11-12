@@ -293,6 +293,13 @@ def test_pipeline_ai_drafts_skip_or_template(tmp_path: Path, monkeypatch, ai_wor
                 "linkedin": LINKEDIN,
                 "x": "KVShare: 37% lower p99 latency vs vLLM on production traces.",
                 "card": {"headline": "Sharing KV caches beats buying more GPUs", "stat": "37%", "stat_label": "lower p99 latency vs vLLM"},
+                "doodle": {
+                    "layout": "bars",
+                    "title": "KVShare vs vLLM on production traces",
+                    "bars": [{"label": "p99 latency cut", "value": 37}, {"label": "GPU utilisation", "value": 2.1}],
+                    "unit": "",
+                    "caption": "Same GPUs, shared KV caches.",
+                },
             },
         ]
     else:
@@ -310,8 +317,9 @@ def test_pipeline_ai_drafts_skip_or_template(tmp_path: Path, monkeypatch, ai_wor
         assert all("gemini/fake" in draft.rationale for draft in drafts)
         linkedin = next(draft for draft in drafts if draft.platform == "linkedin")
         assert linkedin.body.startswith("Most inference cost")
-        card = json.loads(linkedin.card_json)
-        assert card["stat"] == "37%" and card["enabled"] is True
+        image = json.loads(linkedin.card_json)
+        # The doodle mirroring the post is preferred over the plain insight card.
+        assert image["kind"] == "doodle" and image["layout"] == "bars" and image["enabled"] is True
         assert next(draft for draft in drafts if draft.platform == "x").card_json is None
     elif ai_only:
         # AI configured but unavailable: no weak template drafts; topic retried next run.

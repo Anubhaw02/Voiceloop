@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .cards import card_from_json, render_card
+from .cards import card_from_json, render_image
 from .auth import LinkedInAuthError, LinkedInOAuth, new_csrf_token, new_oauth_state
 from .config import Settings, load_settings
 from .db import Database
@@ -228,7 +228,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         card = card_from_json(draft.card_json) if draft else None
         if not card:
             raise HTTPException(status_code=404, detail="No image for this draft")
-        return Response(content=render_card(card), media_type="image/png", headers={"Cache-Control": "private, max-age=60"})
+        return Response(content=render_image(card), media_type="image/png", headers={"Cache-Control": "private, max-age=60"})
 
     @app.post("/drafts/{draft_id}/card")
     def toggle_draft_card(request: Request, draft_id: str, enabled: str = Form("false"), csrf_token: str = Form("")):

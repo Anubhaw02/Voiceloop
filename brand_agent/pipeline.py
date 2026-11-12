@@ -172,8 +172,8 @@ class ResearchPipeline:
                             provider_name=router.last_client_name if router else "ai",
                             note=note,
                         )
-                        if platform == "linkedin" and drafted.card:
-                            draft.card_json = json.dumps(drafted.card, ensure_ascii=False)
+                        if platform == "linkedin" and drafted.image:
+                            draft.card_json = json.dumps(drafted.image, ensure_ascii=False)
                         report.ai_drafts += 1
                     elif router and ai_only:
                         # AI is configured but could not write this one (e.g. Gemini overloaded).
@@ -300,6 +300,7 @@ class ResearchPipeline:
             )
             output["drafts"] = drafted.bodies
             output["card"] = drafted.card
+            output["doodle"] = drafted.doodle
         else:
             output["brief"] = None
         output.update(

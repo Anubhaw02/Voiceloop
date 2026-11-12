@@ -153,17 +153,39 @@ def render_card(card: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+def render_image(image: dict[str, Any]) -> bytes:
+    """Renders either a hand-drawn doodle or a branded insight card."""
+    if image.get("kind") == "doodle":
+        from .doodles import render_doodle
+
+        return render_doodle(image)
+    return render_card(image)
+
+
 def card_from_json(value: str | None) -> dict[str, Any] | None:
+    """Image data for a draft, or None when absent, invalid or turned off."""
     if not value:
         return None
     try:
         card = json.loads(value)
     except json.JSONDecodeError:
         return None
-    return card if isinstance(card, dict) and card.get("enabled", True) and card.get("headline") else None
+    if not isinstance(card, dict) or not card.get("enabled", True):
+        return None
+    required = "title" if card.get("kind") == "doodle" else "headline"
+    return card if card.get(required) else None
 
 
 def alt_text(card: dict[str, Any]) -> str:
+    if card.get("kind") == "doodle":
+        parts = [f"Hand-drawn diagram: {card.get('title', '')}"]
+        parts += [node.get("label", "") for node in card.get("nodes", [])]
+        for side in ("left", "right"):
+            if card.get(side):
+                parts.append(f"{card[side].get('title', '')}: " + ", ".join(card[side].get("points", [])))
+        parts += [f"{bar.get('label', '')} {bar.get('value', '')}{card.get('unit', '')}" for bar in card.get("bars", [])]
+        parts += [card.get("caption", ""), f"Source: {card.get('source', '')}"]
+        return ". ".join(part for part in parts if part)[:300]
     parts = [card.get("headline", "")]
     if card.get("stat"):
         parts.append(f"{card['stat']}: {card.get('stat_label', '')}".strip(": "))

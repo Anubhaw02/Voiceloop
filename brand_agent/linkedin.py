@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import httpx
 
 from .auth import LinkedInAuthError, LinkedInOAuth
-from .cards import alt_text, card_from_json, render_card
+from .cards import alt_text, card_from_json, render_image
 from .config import Settings
 from .db import Database
 from .linkedin_format import to_linkedin_commentary
@@ -97,7 +97,7 @@ def publish_linkedin_draft(
     try:
         card = card_from_json(draft.card_json)
         if card:
-            image_urn = _upload_card_image(headers, author, render_card(card))
+            image_urn = _upload_card_image(headers, author, render_image(card))
             payload["content"] = {"media": {"id": image_urn, "altText": alt_text(card)}}
         for attempt in range(2):
             response = httpx.post("https://api.linkedin.com/rest/posts", headers=headers, json=payload, timeout=30)
