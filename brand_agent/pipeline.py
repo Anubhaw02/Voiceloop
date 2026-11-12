@@ -12,6 +12,7 @@ from .db import Database
 from .drafting import build_draft, choose_provider, create_draft
 from .fulltext import fetch_full_text
 from .llm import LLMError, LLMRouter, build_router
+from .x_client import x_include_link
 from .models import ResearchItem
 from .research import build_brief, build_mission, extract_claims
 from .scoring import classify_industry, classify_topic, score_item
@@ -158,6 +159,7 @@ class ResearchPipeline:
                         platforms=platforms,
                         linkedin_max=int(drafting.get("linkedin_max_characters", 2600)),
                         x_max=int(drafting.get("x_max_characters", 270)),
+                        x_include_link=x_include_link(self.settings),
                     )
                 for platform in platforms:
                     if platform in drafted.bodies:
@@ -172,7 +174,7 @@ class ResearchPipeline:
                             provider_name=router.last_client_name if router else "ai",
                             note=note,
                         )
-                        if platform == "linkedin" and drafted.image:
+                        if drafted.image:  # same doodle/card on LinkedIn and X
                             draft.card_json = json.dumps(drafted.image, ensure_ascii=False)
                         report.ai_drafts += 1
                     elif router and ai_only:

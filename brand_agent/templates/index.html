@@ -39,6 +39,22 @@
       {% endif %}
     </section>
 
+    {% if x.configured %}
+    <section class="safety-banner">
+      {% if x.username %}
+        <strong>X connected as {{ x.username }}.</strong> Approving an X draft posts it there.
+        {% if x_just_connected %}Connection successful.{% endif %}
+        <form method="post" action="/auth/x/disconnect" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button" type="submit">Disconnect X</button>
+        </form>
+      {% else %}
+        <strong>X is not connected.</strong>
+        <a class="button primary" href="/auth/x/login">Connect X</a>
+      {% endif %}
+    </section>
+    {% endif %}
+
     {% if research_running or research_notice %}
     <section class="safety-banner">
       {% if research_running %}

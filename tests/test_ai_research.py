@@ -320,7 +320,10 @@ def test_pipeline_ai_drafts_skip_or_template(tmp_path: Path, monkeypatch, ai_wor
         image = json.loads(linkedin.card_json)
         # The doodle mirroring the post is preferred over the plain insight card.
         assert image["kind"] == "doodle" and image["layout"] == "bars" and image["enabled"] is True
-        assert next(draft for draft in drafts if draft.platform == "x").card_json is None
+        x_draft = next(draft for draft in drafts if draft.platform == "x")
+        assert json.loads(x_draft.card_json)["kind"] == "doodle"  # same image on X
+        # No URL on X (pay-per-use bills links far higher): the paper is cited instead.
+        assert "http" not in x_draft.body and x_draft.body.endswith("arXiv:2611.00009")
     elif ai_only:
         # AI configured but unavailable: no weak template drafts; topic retried next run.
         assert drafts == [] and report.ai_skipped == 2

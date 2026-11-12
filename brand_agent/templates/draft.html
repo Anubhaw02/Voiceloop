@@ -20,15 +20,27 @@
       <p>{{ draft.rationale }}</p>
     </header>
 
+    {% set platform_name = 'X' if draft.platform == 'x' else 'LinkedIn' %}
     {% if draft.publish_error %}
     <section class="error-banner">
-      <strong>LinkedIn publishing failed.</strong> {{ draft.publish_error }}
+      <strong>{{ platform_name }} publishing failed.</strong> {{ draft.publish_error }}
     </section>
     {% endif %}
     {% if draft.status == 'published' %}
     <section class="success-banner">
-      <strong>Published successfully.</strong> LinkedIn reference: {{ draft.external_post_id }}
+      <strong>Published successfully.</strong>
+      {% if draft.platform == 'x' %}
+      <a href="https://x.com/i/web/status/{{ draft.external_post_id }}" target="_blank" rel="noreferrer">View on X</a>
+      {% else %}
+      <a href="https://www.linkedin.com/feed/update/{{ draft.external_post_id }}/" target="_blank" rel="noreferrer">View on LinkedIn</a>
+      {% endif %}
     </section>
+    {% endif %}
+    {% if x_problem and draft.status not in ['published'] %}
+    <section class="error-banner"><strong>Fix before posting:</strong> {{ x_problem }}</section>
+    {% endif %}
+    {% if draft.platform == 'x' and publish_enabled and not x.username %}
+    <section class="safety-banner">X is not connected yet. Approving records your decision; connect X on the dashboard, then use "Publish approved text".</section>
     {% endif %}
 
     <section class="two-column">
@@ -49,7 +61,9 @@
           <div class="action-row">
             <button class="button" formaction="/drafts/{{ draft.id }}/save">Save edit</button>
             <button class="button approve" formaction="/drafts/{{ draft.id }}/approve">
-              {% if draft.platform == 'linkedin' and publish_enabled %}Approve & publish to LinkedIn{% else %}Approve exact text{% endif %}
+              {% if draft.platform == 'linkedin' and publish_enabled %}Approve & publish to LinkedIn
+              {% elif draft.platform == 'x' and publish_enabled and x.username %}Approve & post to X as {{ x.username }}
+              {% else %}Approve exact text{% endif %}
             </button>
           </div>
         </form>
@@ -66,6 +80,7 @@
         <p class="eyebrow" style="margin-top:24px">HOW IT WILL LOOK ON LINKEDIN</p>
         <div class="linkedin-preview">{{ linkedin_preview }}</div>
         <small>**Text** becomes bold. Save an edit to refresh this preview.</small>
+        {% endif %}
 
         {% if card %}
         <p class="eyebrow" style="margin-top:24px">IMAGE ATTACHED TO THE POST</p>
@@ -82,12 +97,11 @@
         </form>
         {% endif %}
         {% endif %}
-        {% endif %}
 
-        {% if draft.status in ['approved', 'publish_failed'] and draft.platform == 'linkedin' and publish_enabled %}
+        {% if draft.status in ['approved', 'publish_failed'] and publish_enabled and (draft.platform == 'linkedin' or x.username) %}
         <form method="post" action="/drafts/{{ draft.id }}/publish">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button approve" type="submit">{% if draft.status == 'publish_failed' %}Retry LinkedIn publish{% else %}Publish approved text{% endif %}</button>
+          <button class="button approve" type="submit">{% if draft.status == 'publish_failed' %}Retry {{ platform_name }} publish{% else %}Publish approved text to {{ platform_name }}{% endif %}</button>
         </form>
         {% endif %}
 

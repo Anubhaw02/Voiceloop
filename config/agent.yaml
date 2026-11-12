@@ -113,6 +113,9 @@ drafting:
   include_source_links: true
   linkedin_max_characters: 2600
   x_max_characters: 270
+  # X bills posts containing a URL far higher, so X drafts cite the paper
+  # (e.g. arXiv:2609.33023) instead. Override with X_INCLUDE_LINK=true on Render.
+  x_include_link: false
   max_pending_drafts: 10
   # With an AI key configured, topics the AI cannot write are skipped and retried
   # next run instead of being saved as rule-based template drafts.

@@ -301,6 +301,17 @@ def build_card(raw: Any, item: ResearchItem, profile: dict[str, Any], allowed_so
     }
 
 
+def x_source_citation(item: ResearchItem) -> str:
+    """Link-free citation for X, where posts containing URLs cost far more."""
+    from .fulltext import ARXIV_ID
+
+    match = ARXIV_ID.search(item.url) or ARXIV_ID.search(str(item.raw.get("arxiv_id", "")))
+    if match:
+        return f"arXiv:{re.sub(r'v\d+$', '', match.group(1))}"
+    name = re.sub(r"https?://\S+", "", item.source_name or "").strip()
+    return f"Source: {name}" if name else "Source: see my LinkedIn post"
+
+
 def _clean(value: Any, limit: int) -> str:
     text = " ".join(str(value or "").replace("**", "").split())
     return text if len(text) <= limit else ""
@@ -391,11 +402,13 @@ def ai_drafts(
     platforms: list[str],
     linkedin_max: int = 2600,
     x_max: int = 270,
+    x_include_link: bool = False,
 ) -> DraftResult:
     """Posts that passed every check, plus validated insight-card text."""
     voice = profile.get("voice", {})
     identity = profile.get("identity", {})
-    x_budget = x_max - len(item.url) - 1
+    x_citation = item.url if x_include_link else x_source_citation(item)
+    x_budget = x_max - len(x_citation) - 1
     preprint = item.publication_status.startswith("preprint")
     facts = {
         "problem": brief.problem,
@@ -506,7 +519,7 @@ Brief and verified claims:
             if issues:
                 problems.append(f"{platform}: " + "; ".join(issues))
                 continue
-            result.bodies[platform] = _with_source(body, item.url) if platform == "linkedin" else f"{body}\n{item.url}"
+            result.bodies[platform] = _with_source(body, item.url) if platform == "linkedin" else f"{body}\n{x_citation}"
             if platform == "linkedin" and result.card is None:
                 result.card = build_card(data.get("card"), item, profile, allowed_source)
             if platform == "linkedin" and result.doodle is None:

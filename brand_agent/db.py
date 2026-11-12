@@ -511,6 +511,13 @@ class Database:
                 )
             )
 
+    def get_draft_for_brief(self, brief_id: str, platform: str) -> ContentDraft | None:
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(drafts).where(and_(drafts.c.brief_id == brief_id, drafts.c.platform == platform))
+            ).mappings().first()
+        return self._draft_from_row(row) if row else None
+
     def set_draft_card_json(self, draft_id: str, card_json: str) -> bool:
         """Updates image data unless the draft is already (being) published."""
         with self.engine.begin() as connection:

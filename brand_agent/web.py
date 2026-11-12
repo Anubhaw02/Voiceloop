@@ -18,6 +18,7 @@ from .auth import LinkedInAuthError, LinkedInOAuth, new_csrf_token, new_oauth_st
 from .config import Settings, load_settings
 from .db import Database
 from .linkedin import LinkedInPublishError, publish_linkedin_draft
+from .x_client import XError, XOAuth, pkce_pair, publish_x_draft, x_include_link, x_text_problem
 from .linkedin_format import BOLD, unicode_bold
 from .pipeline import ResearchPipeline
 from .publishing import (
@@ -143,6 +144,60 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request.session["csrf_token"] = new_csrf_token()
         return RedirectResponse(url="/", status_code=303)
 
+    def x_status() -> dict[str, object]:
+        try:
+            oauth = XOAuth(settings, database)
+        except XError:
+            return {"configured": False, "username": None}
+        connection = oauth.connection() if oauth.configured else None
+        return {"configured": oauth.configured, "username": connection["username"] if connection else None}
+
+    @app.get("/auth/x/login")
+    def x_login(request: Request):
+        redirect = require_user(request)  # connecting X requires the owner's dashboard session
+        if redirect:
+            return redirect
+        try:
+            oauth = XOAuth(settings, database)
+        except XError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        if not oauth.configured:
+            raise HTTPException(status_code=503, detail="X is not configured (X_CLIENT_ID / X_CLIENT_SECRET)")
+        state = secrets.token_urlsafe(32)
+        verifier, challenge = pkce_pair()
+        request.session["x_oauth_state"] = state
+        request.session["x_code_verifier"] = verifier
+        return RedirectResponse(oauth.authorization_url(state=state, code_challenge=challenge), status_code=303)
+
+    @app.get("/auth/x/callback")
+    def x_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+        redirect = require_user(request)
+        if redirect:
+            return redirect
+        expected_state = str(request.session.pop("x_oauth_state", ""))
+        verifier = str(request.session.pop("x_code_verifier", ""))
+        if error:
+            raise HTTPException(status_code=400, detail=f"X denied authorization: {error}")
+        if not expected_state or not state or not secrets.compare_digest(expected_state, state) or not verifier:
+            raise HTTPException(status_code=400, detail="Invalid X OAuth state; start again from the dashboard")
+        if not code:
+            raise HTTPException(status_code=400, detail="X did not return an authorization code")
+        try:
+            XOAuth(settings, database).complete(code=code, code_verifier=verifier)
+        except XError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return RedirectResponse(url="/?x=connected", status_code=303)
+
+    @app.post("/auth/x/disconnect")
+    def x_disconnect(request: Request, csrf_token: str = Form("")):
+        redirect = require_user(request)
+        if redirect:
+            return redirect
+        require_csrf(request, csrf_token)
+        database.delete_oauth_credential("x")
+        database.log_event("x_disconnected", "oauth", "x", {})
+        return RedirectResponse(url="/", status_code=303)
+
     @app.post("/auth/logout")
     def logout(request: Request, csrf_token: str = Form("")):
         require_csrf(request, csrf_token)
@@ -150,7 +205,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return RedirectResponse(url="/auth/linkedin/login", status_code=303)
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard(request: Request, research: str = ""):
+    def dashboard(request: Request, research: str = "", x: str = ""):
         redirect = require_user(request)
         if redirect:
             return redirect
@@ -171,6 +226,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "research_notice": research if research in {"started", "already_running"} else "",
                 "queue_full": queue_full(),
                 "max_pending_drafts": int(settings.raw["drafting"].get("max_pending_drafts", 10)),
+                "x": x_status(),
+                "x_just_connected": x == "connected",
             },
         )
 
@@ -215,6 +272,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "card": json.loads(draft.card_json) if draft.card_json else None,
                 "publish_enabled": settings.publish_enabled,
                 "linkedin_connected": linkedin_connected(),
+                "x": x_status(),
+                "x_problem": x_text_problem(draft.body, include_link=x_include_link(settings)) if draft.platform == "x" else None,
                 "csrf_token": csrf_for(request),
             },
         )
@@ -292,14 +351,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"understood": True, "checked_claims": True, "represents_me": True},
         )
         draft = database.get_draft(draft_id)
-        if draft and draft.platform == "linkedin" and settings.publish_enabled:
-            try:
-                publish_linkedin_draft(database=database, settings=settings, draft=draft)
-            except (LinkedInPublishError, ApprovalRequiredError, PublishingDisabledError) as exc:
-                current = database.get_draft(draft_id)
-                if current and current.status == "publishing":
-                    database.mark_publish_failed(draft_id, str(exc))
+        # X posts go out on approval only once X is connected; otherwise the
+        # approved draft waits for "Publish approved text".
+        can_post = draft and (draft.platform == "linkedin" or (draft.platform == "x" and x_status()["username"]))
+        if can_post and settings.publish_enabled:
+            publish_now(draft)
         return RedirectResponse(url=f"/drafts/{draft_id}", status_code=303)
+
+    def publish_now(draft) -> None:
+        """Publishes to the draft's platform; failures are recorded on the draft."""
+        try:
+            if draft.platform == "x":
+                publish_x_draft(database=database, settings=settings, draft=draft)
+            else:
+                publish_linkedin_draft(database=database, settings=settings, draft=draft)
+        except (LinkedInPublishError, XError, ApprovalRequiredError, PublishingDisabledError) as exc:
+            current = database.get_draft(draft.id)
+            if current and current.status == "publishing":
+                database.mark_publish_failed(draft.id, str(exc))
 
     @app.post("/drafts/{draft_id}/publish")
     def retry_publish(request: Request, draft_id: str, csrf_token: str = Form("")):
@@ -310,12 +379,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         draft = database.get_draft(draft_id)
         if not draft:
             raise HTTPException(status_code=404, detail="Draft not found")
-        try:
-            publish_linkedin_draft(database=database, settings=settings, draft=draft)
-        except (LinkedInPublishError, ApprovalRequiredError, PublishingDisabledError) as exc:
-            current = database.get_draft(draft_id)
-            if current and current.status == "publishing":
-                database.mark_publish_failed(draft_id, str(exc))
+        publish_now(draft)
         return RedirectResponse(url=f"/drafts/{draft_id}", status_code=303)
 
     @app.post("/drafts/{draft_id}/reject")
