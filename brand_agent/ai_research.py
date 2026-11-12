@@ -434,6 +434,7 @@ Hard rules:
 3. **What they found** on its own line, then 2-3 lines each starting with "→ " and stating one concrete result.
 4. **My take** on its own line, then 2-3 short sentences on why this matters for teams running cloud/AI systems
    in industry. This is the owner's interpretation: make it specific and defensible, not generic.
+   Address "teams" or "you"; never "we"/"our", which would imply the owner runs these systems.
 5. **The catch** on its own line, then one or two sentences with the most important limitation.
 6. A specific question that invites engineers or founders to share their own experience (not yes/no).
 7. Last line: 2-3 relevant hashtags.
@@ -448,7 +449,10 @@ The single sharpest insight with one concrete result. No hashtags or one at most
 - "stat_label": under 60 characters saying what that number measures.
 
 "doodle": a simple hand-drawn whiteboard diagram that SHOWS the post's core idea at a glance.
-Pick the layout that fits best:
+Choose the layout by content, in this order of preference:
+- the post has 2+ comparable numbers (speedups, scores, percentages) -> "bars"
+- the post contrasts an old approach with a new one -> "compare"
+- otherwise, a process of 3-5 steps -> "flow" (never only 2 steps)
 - "flow": 2-5 steps of a process/pipeline, each {{"label" (under 40 chars), "note" (under 35 chars, optional),
   "status": "good" | "bad" | "neutral"}}. Use good/bad to show what works vs what fails.
 - "compare": old way vs new way, "left"/"right" each {{"title" (under 35 chars), "points": 2-4 items under 45 chars}}.
