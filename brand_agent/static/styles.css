@@ -31,6 +31,17 @@ p { color: var(--muted); line-height: 1.65; }
 .metrics article { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
 .metrics span { display: block; font-size: 2rem; font-weight: 800; }
 .metrics small { color: var(--muted); }
+.pipeline-panel { background: linear-gradient(145deg, rgba(18, 25, 35, .98), rgba(19, 40, 49, .92)); }
+.funnel-flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr; gap: 12px; align-items: center; }
+.funnel-flow div { min-height: 105px; display: grid; align-content: center; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(11, 15, 20, .5); }
+.funnel-flow strong { color: var(--text); }
+.funnel-flow span, .section-note { color: var(--muted); line-height: 1.5; }
+.funnel-flow b { color: var(--accent); font-size: 1.35rem; }
+.run-summary { margin: 20px 0 12px; padding: 14px 16px; border-left: 3px solid var(--accent); background: rgba(114, 224, 185, .06); }
+.run-summary strong { color: var(--text); }
+.queue-strip { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.queue-strip > div { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; padding: 13px 15px; border-radius: 11px; background: var(--panel-2); color: var(--muted); }
+.queue-strip small { width: 100%; color: var(--muted); }
 .panel { background: rgba(18, 25, 35, .92); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; margin-top: 20px; box-shadow: 0 18px 60px rgba(0,0,0,.16); }
 .section-heading { display: flex; justify-content: space-between; align-items: center; }
 .button { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); padding: 11px 16px; border-radius: 10px; cursor: pointer; font: inherit; font-weight: 700; }
@@ -40,6 +51,9 @@ p { color: var(--muted); line-height: 1.65; }
 .draft-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .draft-card { display: block; text-decoration: none; background: var(--panel-2); border: 1px solid var(--line); border-radius: 13px; padding: 18px; transition: .18s ease; }
 .draft-card:hover { border-color: var(--accent-2); transform: translateY(-2px); }
+.platform-queue { padding-top: 8px; margin-top: 12px; border-top: 1px solid var(--line); }
+.platform-queue .section-heading h3 { margin: 8px 0 14px; }
+.platform-queue .section-heading span { color: var(--muted); font-size: .82rem; }
 .card-meta { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: .75rem; }
 .badge, .status { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #223044; color: #bfd3eb; text-transform: uppercase; font-size: .67rem; letter-spacing: .08em; }
 .badge.linkedin { color: #dbeaff; background: #194a81; }
@@ -82,6 +96,7 @@ dd { margin: 0; }
 .approval-checklist legend { color: var(--accent); font-weight: 800; padding: 0 8px; }
 .approval-checklist label { display: flex; gap: 10px; color: var(--muted); line-height: 1.45; }
 .empty { padding: 30px 0; text-align: center; }
+.empty.compact { padding: 14px 0; text-align: left; }
 .error-banner, .success-banner { padding: 14px 18px; border-radius: 12px; margin: 18px 0; }
 .error-banner { color: #ffd5dd; background: rgba(255,122,144,.1); border: 1px solid rgba(255,122,144,.45); }
 .success-banner { color: #c6f4e3; background: rgba(114,224,185,.08); border: 1px solid rgba(114,224,185,.35); }
@@ -90,6 +105,9 @@ dd { margin: 0; }
   .hero { align-items: flex-start; flex-direction: column; }
   .header-actions { width: 100%; flex-wrap: wrap; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
+  .funnel-flow { grid-template-columns: 1fr; }
+  .funnel-flow b { transform: rotate(90deg); justify-self: center; }
+  .queue-strip { grid-template-columns: 1fr; }
   .draft-grid, .two-column, .mission-card { grid-template-columns: 1fr; }
 }
 

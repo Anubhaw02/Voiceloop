@@ -66,18 +66,48 @@
         <strong>Research run finished.</strong> See Run history below for the result.
       {% endif %}
       {% if queue_full %}
-        <br>Your approval queue is full ({{ counts.pending }}/{{ max_pending_drafts }} pending; each topic needs a LinkedIn
-        and an X slot), so research refreshes signals but creates no new drafts until you approve or reject some.
+        <br>Every platform queue is full, so this run can refresh research but cannot create another draft until you review one.
       {% endif %}
     </section>
     {% endif %}
 
     <section class="metrics">
-      <article><span>{{ counts['items'] }}</span><small>research items</small></article>
-      <article><span>{{ counts.briefs }}</span><small>evidence briefs</small></article>
-      <article><span>{{ counts.pending }}</span><small>awaiting approval</small></article>
-      <article><span>{{ counts.approved }}</span><small>approved / published</small></article>
+      <article><span>{{ counts['items'] }}</span><small>signals in research library</small></article>
+      <article><span>{{ counts.briefs }}</span><small>topics promoted to briefs</small></article>
+      <article><span>{{ counts.pending }}</span><small>drafts awaiting approval</small></article>
+      <article><span>{{ counts.published }}</span><small>posts published</small></article>
       <article><span>{{ counts.missions }}</span><small>growth missions</small></article>
+    </section>
+
+    <section class="panel pipeline-panel">
+      <p class="eyebrow">WHAT THE AUTOMATION DID</p>
+      <h2>Research is a funnel, not a post counter</h2>
+      <div class="funnel-flow" aria-label="Research pipeline">
+        <div><strong>1. Scan</strong><span>papers, journals, engineering sources</span></div>
+        <b>→</b>
+        <div><strong>2. Store</strong><span>deduplicate the useful signals</span></div>
+        <b>→</b>
+        <div><strong>3. Verify</strong><span>promote strong evidence to a brief</span></div>
+        <b>→</b>
+        <div><strong>4. Draft</strong><span>write only when that platform has room</span></div>
+      </div>
+      {% if latest_run %}
+      <p class="run-summary">
+        <strong>Latest run:</strong> scanned {{ latest_run.discovered_count }} source results,
+        added {{ latest_run.new_item_count or 0 }} new signals to the library,
+        created {{ latest_run.brief_count }} evidence brief{% if latest_run.brief_count != 1 %}s{% endif %}
+        and {{ latest_run.draft_count }} draft{% if latest_run.draft_count != 1 %}s{% endif %}.
+      </p>
+      {% endif %}
+      <div class="queue-strip">
+        {% for platform, status in queue.items() %}
+        <div>
+          <span class="badge {{ platform }}">{{ 'LinkedIn' if platform == 'linkedin' else platform|upper }}</span>
+          <strong>{{ status.pending }}/{{ status.limit }}</strong> pending
+          {% if status.full %}<small>Queue full: this platform pauses drafting.</small>{% else %}<small>{{ status.limit - status.pending }} draft slots available.</small>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
     </section>
 
     <section class="panel">
@@ -120,10 +150,17 @@
 
     <section class="panel">
       <p class="eyebrow">APPROVAL QUEUE</p>
-      <h2>Drafts requiring your judgment</h2>
-      {% if drafts %}
-      <div class="draft-grid">
-        {% for draft in drafts %}
+      <h2>Posts ready for your judgment</h2>
+      <p class="section-note">Only drafts that still need action appear here. Published posts are shown separately below.</p>
+      {% for platform, drafts in drafts_by_platform.items() %}
+      <div class="platform-queue">
+        <div class="section-heading">
+          <h3>{{ 'LinkedIn' if platform == 'linkedin' else platform|upper }}</h3>
+          <span>{{ queue[platform].pending }}/{{ queue[platform].limit }} pending</span>
+        </div>
+        {% if drafts %}
+        <div class="draft-grid">
+          {% for draft in drafts %}
         <a class="draft-card" href="/drafts/{{ draft.id }}">
           <div class="card-meta">
             <span class="badge {{ draft.platform }}">{{ draft.platform }}</span>
@@ -133,11 +170,33 @@
           <p>{{ draft.body[:220] }}{% if draft.body|length > 220 %}…{% endif %}</p>
           <small>Risk: {{ draft.risk_level }} · {{ draft.created_at[:16].replace('T', ' ') }} UTC</small>
         </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty compact">No {{ 'LinkedIn' if platform == 'linkedin' else platform|upper }} draft needs action.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">PUBLISHING HISTORY</p>
+      <h2>Recently published</h2>
+      {% if recent_published %}
+      <div class="draft-grid">
+        {% for draft in recent_published %}
+        <a class="draft-card" href="/drafts/{{ draft.id }}">
+          <div class="card-meta">
+            <span class="badge {{ draft.platform }}">{{ draft.platform }}</span>
+            <span class="status published">published</span>
+          </div>
+          <h3>{{ draft.title }}</h3>
+          <p>{{ draft.body[:180] }}{% if draft.body|length > 180 %}…{% endif %}</p>
+          <small>{{ draft.published_at[:16].replace('T', ' ') if draft.published_at else draft.updated_at[:16].replace('T', ' ') }} UTC</small>
+        </a>
         {% endfor %}
       </div>
-      {% else %}
-      <p class="empty">No drafts yet. Run the first research cycle.</p>
-      {% endif %}
+      {% else %}<p class="empty compact">No published posts yet.</p>{% endif %}
     </section>
 
     <section class="panel">
@@ -166,13 +225,14 @@
       <h2>Automation health</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Started</th><th>Status</th><th>Found</th><th>Briefs</th><th>Drafts</th></tr></thead>
+          <thead><tr><th>Started</th><th>Status</th><th>Scanned</th><th>New signals</th><th>Briefs</th><th>Drafts</th></tr></thead>
           <tbody>
           {% for run in runs %}
             <tr>
               <td>{{ run.started_at[:19].replace('T', ' ') }} UTC</td>
               <td>{{ run.status.replace('_', ' ') }}</td>
               <td>{{ run.discovered_count }}</td>
+              <td>{{ run.new_item_count or 0 }}</td>
               <td>{{ run.brief_count }}</td>
               <td>{{ run.draft_count }}</td>
             </tr>

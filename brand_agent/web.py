@@ -92,13 +92,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not expected or not submitted or not secrets.compare_digest(expected, submitted):
             raise HTTPException(status_code=403, detail="Invalid or missing CSRF token")
 
-    def queue_full() -> bool:
-        # Each selected topic needs one slot per platform (LinkedIn + X), so
-        # the queue is effectively full before it reaches the hard limit.
+    def queue_status() -> dict[str, dict[str, int | bool]]:
         drafting = settings.raw["drafting"]
-        platforms = max(1, len(drafting.get("platforms", ["linkedin"])))
-        free = int(drafting.get("max_pending_drafts", 10)) - database.pending_draft_count()
-        return free // platforms == 0
+        limit = int(drafting.get("max_pending_drafts", 10))
+        result: dict[str, dict[str, int | bool]] = {}
+        for platform in drafting.get("platforms", ["linkedin"]):
+            pending = database.pending_draft_count(platform)
+            result[platform] = {
+                "pending": pending,
+                "limit": limit,
+                "full": pending >= limit,
+            }
+        return result
 
     def linkedin_connected() -> bool:
         if not settings.linkedin_configured:
@@ -209,23 +214,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redirect = require_user(request)
         if redirect:
             return redirect
+        queue = queue_status()
+        actionable = database.list_drafts(
+            statuses=["pending_approval", "approved", "publish_failed"],
+            limit=40,
+        )
+        platforms = settings.raw["drafting"].get("platforms", ["linkedin"])
+        drafts_by_platform = {
+            platform: [draft for draft in actionable if draft.platform == platform]
+            for platform in platforms
+        }
+        runs = database.recent_runs(limit=8)
         return templates.TemplateResponse(
             request=request,
             name="index.html",
             context={
                 "counts": database.dashboard_counts(),
                 "items": database.list_items(limit=12),
-                "drafts": database.list_drafts(limit=20),
+                "drafts_by_platform": drafts_by_platform,
+                "recent_published": database.list_drafts(status="published", limit=6),
                 "missions": database.list_missions(limit=10),
-                "runs": database.recent_runs(limit=8),
+                "runs": runs,
+                "latest_run": runs[0] if runs else None,
                 "publish_enabled": settings.publish_enabled,
                 "linkedin_connected": linkedin_connected(),
                 "user": request.session.get("user"),
                 "csrf_token": csrf_for(request),
                 "research_running": research_lock.locked(),
                 "research_notice": research if research in {"started", "already_running"} else "",
-                "queue_full": queue_full(),
-                "max_pending_drafts": int(settings.raw["drafting"].get("max_pending_drafts", 10)),
+                "queue": queue,
+                "queue_full": bool(queue) and all(status["full"] for status in queue.values()),
                 "x": x_status(),
                 "x_just_connected": x == "connected",
             },

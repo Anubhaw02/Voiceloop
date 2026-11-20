@@ -137,7 +137,56 @@ def test_dashboard_shows_research_item_count(tmp_path: Path):
     page = TestClient(create_app(settings)).get("/")
     assert page.status_code == 200
     assert "built-in method" not in page.text
-    assert "<span>1</span><small>research items</small>" in page.text
+    assert "<span>1</span><small>signals in research library</small>" in page.text
+    assert "Research is a funnel, not a post counter" in page.text
+
+
+def test_dashboard_separates_actionable_and_published_drafts(tmp_path: Path):
+    settings = _minimal_settings(tmp_path)
+    database = Database(settings.database_path)
+    database.initialize()
+    item = ResearchItem(
+        id="item_queue",
+        title="Queue research",
+        abstract="Evidence",
+        url="https://example.com/queue",
+        source_name="Conference",
+        source_type="peer_reviewed",
+        content_hash="hash_queue",
+    )
+    database.upsert_item(item)
+    brief = ResearchBrief(
+        id="brief_queue",
+        item_id=item.id,
+        headline=item.title,
+        problem="Problem",
+        contribution="Contribution",
+        evidence="Evidence",
+        limitations="Limitations",
+        cloud_implications="Cloud",
+        industry_implications="Industry",
+        founder_questions=["Question"],
+        confidence=0.9,
+    )
+    database.save_brief(brief)
+    database.save_draft(
+        ContentDraft(
+            id="draft_published",
+            brief_id=brief.id,
+            platform="linkedin",
+            title="Published history title",
+            body="Published body",
+            rationale="Test",
+        )
+    )
+    database.set_draft_status("draft_published", "published")
+
+    page = TestClient(create_app(settings)).get("/")
+
+    assert page.status_code == 200
+    assert page.text.count("Published history title") == 1
+    assert "Recently published" in page.text
+    assert "No LinkedIn draft needs action" in page.text
 
 
 def test_run_research_returns_immediately_and_blocks_overlap(tmp_path: Path, monkeypatch):

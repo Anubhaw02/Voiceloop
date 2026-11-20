@@ -103,31 +103,42 @@ class ResearchPipeline:
                 )
 
             top_limit = int(self.settings.raw["research"].get("top_items_per_run", 5))
-            platform_count = max(1, len(self.settings.raw["drafting"].get("platforms", ["linkedin"])))
-            pending_limit = int(self.settings.raw["drafting"].get("max_pending_drafts", 10))
-            available_item_slots = max(
-                0,
-                min(top_limit, (pending_limit - self.database.pending_draft_count()) // platform_count),
-            )
-            drafted_item_ids = self.database.drafted_item_ids()
+            drafting = self.settings.raw["drafting"]
+            platforms = list(dict.fromkeys(drafting.get("platforms", ["linkedin"])))
+            pending_limit = int(drafting.get("max_pending_drafts", 10))
+            available_platform_slots = {
+                platform: max(0, pending_limit - self.database.pending_draft_count(platform))
+                for platform in platforms
+            }
+            drafted_platforms = self.database.drafted_platforms_by_item()
             candidates = [
                 item
                 for item in self.database.list_items(limit=100, minimum_score=25)
-                if item.id not in drafted_item_ids
+                if any(
+                    available_platform_slots[platform] > 0
+                    and platform not in drafted_platforms.get(item.id, set())
+                    for platform in platforms
+                )
             ]
             # AI is only spent when there is room in the approval queue.
-            router = build_router(self.settings.raw) if available_item_slots > 0 else None
+            router = build_router(self.settings.raw) if any(available_platform_slots.values()) else None
             judge_reasons: dict[str, str] = {}
             if router:
                 report.ai_providers = router.names
                 candidates, judge_reasons = self._ai_rank(router, candidates, report)
 
-            top_items = self._select_diverse_items(candidates, available_item_slots)
+            top_items = self._select_diverse_items(candidates, top_limit)
             provider = choose_provider(self.settings.raw["drafting"])
-            drafting = self.settings.raw["drafting"]
-            platforms = drafting.get("platforms", ["linkedin"])
             ai_only = bool(drafting.get("ai_only", True))
             for item in top_items:
+                target_platforms = [
+                    platform
+                    for platform in platforms
+                    if available_platform_slots[platform] > 0
+                    and platform not in drafted_platforms.get(item.id, set())
+                ]
+                if not target_platforms:
+                    continue
                 is_new_brief = self.database.get_brief_for_item(item.id) is None
                 document, text_source, ai_result = "", "abstract_only", None
                 if router:
@@ -156,12 +167,12 @@ class ResearchPipeline:
                         claims,
                         self.settings.profile,
                         document,
-                        platforms=platforms,
+                        platforms=target_platforms,
                         linkedin_max=int(drafting.get("linkedin_max_characters", 2600)),
                         x_max=int(drafting.get("x_max_characters", 270)),
                         x_include_link=x_include_link(self.settings),
                     )
-                for platform in platforms:
+                for platform in target_platforms:
                     if platform in drafted.bodies:
                         note = f"Brief from {text_source.replace('_', ' ')}; claims quote-verified; numbers checked against source."
                         if judge_reasons.get(item.id):
@@ -193,6 +204,8 @@ class ResearchPipeline:
                         )
                     self.database.save_draft(draft)
                     report.drafts += 1
+                    available_platform_slots[platform] -= 1
+                    drafted_platforms.setdefault(item.id, set()).add(platform)
 
             if router:
                 report.ai_calls = router.calls
@@ -217,6 +230,7 @@ class ResearchPipeline:
                 run_id,
                 status=report.status,
                 discovered_count=report.discovered,
+                new_item_count=report.new_items,
                 brief_count=report.briefs,
                 draft_count=report.drafts,
                 errors=report.errors,

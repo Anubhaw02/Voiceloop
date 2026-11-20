@@ -16,7 +16,8 @@ from brand_agent.ai_research import (
 from brand_agent.config import Settings
 from brand_agent.db import Database
 from brand_agent.llm import GeminiClient, LLMError, LLMRouter, build_router
-from brand_agent.models import ResearchItem
+from brand_agent.models import ContentDraft, ResearchItem
+from brand_agent.research import build_brief
 
 
 ABSTRACT = (
@@ -332,6 +333,60 @@ def test_pipeline_ai_drafts_skip_or_template(tmp_path: Path, monkeypatch, ai_wor
         assert {draft.platform for draft in drafts} == {"linkedin", "x"}
         assert all("evidence_first_template" in draft.rationale for draft in drafts)
         assert any("AI" in error for error in report.errors)
+
+
+def test_full_x_queue_does_not_block_linkedin_drafts(tmp_path: Path, monkeypatch):
+    settings = _settings(tmp_path)
+    settings.raw["research"]["top_items_per_run"] = 1
+    settings.raw["drafting"].update(max_pending_drafts=1, ai_only=False)
+    database = Database(settings.database_path)
+    database.initialize()
+
+    old_item = make_item("item_old", score=80)
+    database.upsert_item(old_item)
+    old_brief = build_brief(old_item)
+    database.save_brief(old_brief)
+    database.save_draft(
+        ContentDraft(
+            id="draft_old_x",
+            brief_id=old_brief.id,
+            platform="x",
+            title="Old X",
+            body="An old X draft that is still waiting for review.",
+            rationale="Test",
+        )
+    )
+    database.save_draft(
+        ContentDraft(
+            id="draft_old_linkedin",
+            brief_id=old_brief.id,
+            platform="linkedin",
+            title="Old LinkedIn",
+            body="An old LinkedIn draft.",
+            rationale="Test",
+        )
+    )
+    database.set_draft_status("draft_old_linkedin", "published")
+
+    new_item = make_item("item_new", score=80)
+    monkeypatch.setattr(pipeline_module, "build_sources", lambda *a, **k: [])
+    monkeypatch.setattr(
+        pipeline_module,
+        "discover_all",
+        lambda sources: type("R", (), {"items": [new_item], "errors": []})(),
+    )
+    monkeypatch.setattr(pipeline_module, "score_item", lambda item, cfg: (80.0, {"relevance": 1.0}))
+    monkeypatch.setattr(pipeline_module, "build_router", lambda config: None)
+
+    report = pipeline_module.ResearchPipeline(settings, database).run()
+
+    new_brief = database.get_brief_for_item(new_item.id)
+    assert report.drafts == 1
+    assert new_brief is not None
+    assert database.get_draft_for_brief(new_brief.id, "linkedin") is not None
+    assert database.get_draft_for_brief(new_brief.id, "x") is None
+    assert database.pending_draft_count("x") == 1
+    assert database.pending_draft_count("linkedin") == 1
 
 
 def test_long_x_draft_is_trimmed_at_sentence_boundary():

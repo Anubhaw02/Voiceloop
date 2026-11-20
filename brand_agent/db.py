@@ -117,6 +117,7 @@ pipeline_runs = Table(
     Column("finished_at", String),
     Column("status", String, nullable=False),
     Column("discovered_count", Integer, nullable=False, default=0),
+    Column("new_item_count", Integer, nullable=False, default=0),
     Column("brief_count", Integer, nullable=False, default=0),
     Column("draft_count", Integer, nullable=False, default=0),
     Column("errors_json", Text, nullable=False, default="[]"),
@@ -213,6 +214,7 @@ class Database:
             "publish_error": "TEXT",
             "card_json": "TEXT",
         }
+        run_columns = {column["name"] for column in inspect(self.engine).get_columns("pipeline_runs")}
         with self.engine.begin() as connection:
             if self.backend == "sqlite":
                 connection.exec_driver_sql("PRAGMA foreign_keys=ON")
@@ -220,6 +222,11 @@ class Database:
             for name, sql_type in additions.items():
                 if name not in existing:
                     connection.exec_driver_sql(f"ALTER TABLE drafts ADD COLUMN {name} {sql_type}")
+
+            if "new_item_count" not in run_columns:
+                connection.exec_driver_sql(
+                    "ALTER TABLE pipeline_runs ADD COLUMN new_item_count INTEGER NOT NULL DEFAULT 0"
+                )
 
     def start_run(self, run_id: str) -> None:
         with self.engine.begin() as connection:
@@ -229,6 +236,7 @@ class Database:
                     started_at=utc_now(),
                     status="running",
                     discovered_count=0,
+                    new_item_count=0,
                     brief_count=0,
                     draft_count=0,
                     errors_json="[]",
@@ -241,6 +249,7 @@ class Database:
         *,
         status: str,
         discovered_count: int,
+        new_item_count: int,
         brief_count: int,
         draft_count: int,
         errors: list[str],
@@ -253,6 +262,7 @@ class Database:
                     finished_at=utc_now(),
                     status=status,
                     discovered_count=discovered_count,
+                    new_item_count=new_item_count,
                     brief_count=brief_count,
                     draft_count=draft_count,
                     errors_json=json.dumps(errors),
@@ -561,31 +571,45 @@ class Database:
             row = connection.execute(select(drafts).where(drafts.c.id == draft_id)).mappings().first()
         return self._draft_from_row(row) if row else None
 
-    def list_drafts(self, *, status: str | None = None, limit: int = 100) -> list[ContentDraft]:
+    def list_drafts(
+        self,
+        *,
+        status: str | None = None,
+        statuses: list[str] | None = None,
+        limit: int = 100,
+    ) -> list[ContentDraft]:
+        if status and statuses:
+            raise ValueError("Use either status or statuses, not both")
         statement = select(drafts)
         if status:
             statement = statement.where(drafts.c.status == status)
+        elif statuses:
+            statement = statement.where(drafts.c.status.in_(statuses))
         statement = statement.order_by(desc(drafts.c.created_at)).limit(limit)
         with self.engine.connect() as connection:
             rows = connection.execute(statement).mappings().all()
         return [self._draft_from_row(row) for row in rows]
 
-    def drafted_item_ids(self) -> set[str]:
-        statement = select(research_briefs.c.item_id).select_from(
+    def drafted_platforms_by_item(self) -> dict[str, set[str]]:
+        statement = select(research_briefs.c.item_id, drafts.c.platform).select_from(
             drafts.join(research_briefs, research_briefs.c.id == drafts.c.brief_id)
         ).distinct()
         with self.engine.connect() as connection:
             rows = connection.execute(statement).all()
-        return {row[0] for row in rows}
+        result: dict[str, set[str]] = {}
+        for item_id, platform in rows:
+            result.setdefault(item_id, set()).add(platform)
+        return result
 
-    def pending_draft_count(self) -> int:
+    def drafted_item_ids(self) -> set[str]:
+        return set(self.drafted_platforms_by_item())
+
+    def pending_draft_count(self, platform: str | None = None) -> int:
+        statement = select(func.count()).select_from(drafts).where(drafts.c.status == "pending_approval")
+        if platform:
+            statement = statement.where(drafts.c.platform == platform)
         with self.engine.connect() as connection:
-            return int(
-                connection.scalar(
-                    select(func.count()).select_from(drafts).where(drafts.c.status == "pending_approval")
-                )
-                or 0
-            )
+            return int(connection.scalar(statement) or 0)
 
     def update_draft_body(self, draft_id: str, body: str) -> bool:
         with self.engine.begin() as connection:
@@ -853,6 +877,7 @@ class Database:
                     drafts,
                     drafts.c.status.in_(["approved", "exported", "publishing", "published"]),
                 ),
+                "published": count(connection, drafts, drafts.c.status == "published"),
                 "missions": count(connection, missions, missions.c.status.in_(["proposed", "active"])),
             }
 

@@ -67,12 +67,15 @@ def send_pending_review_reminder(
         }
 
     token_message = _token_message(database)
+    linkedin_pending = database.pending_draft_count("linkedin")
+    x_pending = database.pending_draft_count("x")
     subject = f"{pending} Frontier Brand draft{'s' if pending != 1 else ''} need your review"
     dashboard_url = settings.base_url
     body = f"""
     <div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;line-height:1.55">
       <h2>Your research cycle is ready</h2>
       <p><strong>{pending}</strong> draft{'s are' if pending != 1 else ' is'} waiting for your judgment.</p>
+      <p>LinkedIn: <strong>{linkedin_pending}</strong> &nbsp; X: <strong>{x_pending}</strong></p>
       <p>{html.escape(token_message)}</p>
       <p><a href="{html.escape(dashboard_url)}" style="display:inline-block;padding:12px 18px;background:#0a66c2;color:#fff;text-decoration:none;border-radius:6px">Review drafts</a></p>
       <p style="color:#555">Nothing is published until you review the research, confirm all three approval checks, and approve the exact text.</p>
