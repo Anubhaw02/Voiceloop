@@ -881,6 +881,22 @@ class Database:
                 "missions": count(connection, missions, missions.c.status.in_(["proposed", "active"])),
             }
 
+    def published_draft_count_since(self, since: str) -> int:
+        """Count posts published on or after an ISO-8601 timestamp."""
+        with self.engine.connect() as connection:
+            return int(
+                connection.scalar(
+                    select(func.count())
+                    .select_from(drafts)
+                    .where(
+                        drafts.c.status == "published",
+                        drafts.c.published_at.is_not(None),
+                        drafts.c.published_at >= since,
+                    )
+                )
+                or 0
+            )
+
     def recent_runs(self, *, limit: int = 10) -> list[dict[str, Any]]:
         with self.engine.connect() as connection:
             rows = connection.execute(

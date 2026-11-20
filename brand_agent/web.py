@@ -4,7 +4,9 @@ import json
 import logging
 import secrets
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -61,6 +63,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
     templates = Jinja2Templates(directory=PACKAGE_ROOT / "templates")
+
+    timezone_name = settings.raw["app"].get("timezone", "Asia/Kolkata")
+    try:
+        local_zone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        local_zone = timezone.utc
+
+    def parse_timestamp(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def local_time(value: str | None) -> str:
+        parsed = parse_timestamp(value)
+        if not parsed:
+            return "Time unavailable"
+        return parsed.astimezone(local_zone).strftime("%d %b, %I:%M %p")
+
+    def local_date(value: str | None) -> str:
+        parsed = parse_timestamp(value)
+        if not parsed:
+            return "date unavailable"
+        return parsed.astimezone(local_zone).strftime("%d %b %Y")
+
+    templates.env.filters["local_time"] = local_time
+    templates.env.filters["local_date"] = local_date
+
+    def display_run(row: dict[str, object]) -> dict[str, object]:
+        prepared = dict(row)
+        try:
+            errors = json.loads(str(prepared.get("errors_json") or "[]"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            errors = ["The run recorded an unreadable warning."]
+        if not isinstance(errors, list):
+            errors = [str(errors)]
+        prepared["errors"] = [str(error) for error in errors]
+        prepared["error_count"] = len(errors)
+        prepared["local_started"] = local_time(str(prepared.get("started_at") or ""))
+        return prepared
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
@@ -224,15 +271,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             platform: [draft for draft in actionable if draft.platform == platform]
             for platform in platforms
         }
-        runs = database.recent_runs(limit=8)
+        runs = [display_run(run) for run in database.recent_runs(limit=8)]
+        now_local = datetime.now(local_zone)
+        week_start_local = (now_local - timedelta(days=now_local.weekday())).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
         return templates.TemplateResponse(
             request=request,
             name="index.html",
             context={
                 "counts": database.dashboard_counts(),
-                "items": database.list_items(limit=12),
+                "items": database.list_items(limit=3),
                 "drafts_by_platform": drafts_by_platform,
-                "recent_published": database.list_drafts(status="published", limit=6),
+                "actionable_count": len(actionable),
+                "recent_published": database.list_drafts(status="published", limit=3),
+                "published_this_week": database.published_draft_count_since(
+                    week_start_local.astimezone(timezone.utc).isoformat()
+                ),
                 "missions": database.list_missions(limit=10),
                 "runs": runs,
                 "latest_run": runs[0] if runs else None,

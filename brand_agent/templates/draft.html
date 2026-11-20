@@ -8,143 +8,78 @@
 </head>
 <body>
   <main class="shell detail-shell">
-    <a class="back" href="/">← Back to dashboard</a>
+    <nav class="detail-nav"><a class="back" href="/">Back to dashboard</a><span>Review {{ 'X' if draft.platform == 'x' else 'LinkedIn' }} draft</span></nav>
 
     <header class="detail-header">
-      <div class="card-meta">
-        <span class="badge {{ draft.platform }}">{{ draft.platform }}</span>
-        <span class="status {{ draft.status }}">{{ draft.status.replace('_', ' ') }}</span>
-        <span>risk: {{ draft.risk_level }}</span>
-      </div>
+      <div class="card-meta"><span class="badge {{ draft.platform }}">{{ draft.platform }}</span><span class="status {{ draft.status }}">{{ draft.status.replace('_', ' ') }}</span><span>Risk: {{ draft.risk_level }}</span></div>
       <h1>{{ draft.title }}</h1>
-      <p>{{ draft.rationale }}</p>
     </header>
 
     {% set platform_name = 'X' if draft.platform == 'x' else 'LinkedIn' %}
-    {% if draft.publish_error %}
-    <section class="error-banner">
-      <strong>{{ platform_name }} publishing failed.</strong> {{ draft.publish_error }}
+    {% if draft.publish_error %}<section class="error-banner"><strong>{{ platform_name }} publishing failed.</strong> {{ draft.publish_error }}</section>{% endif %}
+    {% if draft.status == 'published' %}<section class="success-banner"><strong>Published successfully.</strong> {% if draft.platform == 'x' %}<a href="https://x.com/i/web/status/{{ draft.external_post_id }}" target="_blank" rel="noreferrer">View on X</a>{% else %}<a href="https://www.linkedin.com/feed/update/{{ draft.external_post_id }}/" target="_blank" rel="noreferrer">View on LinkedIn</a>{% endif %}</section>{% endif %}
+    {% if x_problem and draft.status not in ['published'] %}<section class="error-banner"><strong>Fix before posting:</strong> {{ x_problem }}</section>{% endif %}
+    {% if draft.platform == 'x' and publish_enabled and not x.username %}<section class="notice-bar">X is not connected. Approval records your decision; connect X on the dashboard before publishing.</section>{% endif %}
+
+    {% if draft.status in ['pending_approval', 'rejected'] %}
+    <form method="post" class="review-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <section class="review-layout">
+        <article class="panel compose-panel">
+          <div class="panel-heading"><div><p class="eyebrow">EXACT PUBLIC TEXT</p><h2>Edit the post</h2></div><span class="count-pill">{{ draft.body|length }} characters</span></div>
+          <textarea name="body" rows="22" spellcheck="true" aria-label="Exact post text">{{ draft.body }}</textarea>
+          {% if draft.platform == 'linkedin' %}
+          <details class="inline-disclosure"><summary>Preview LinkedIn formatting</summary><div class="linkedin-preview">{{ linkedin_preview }}</div><small>Bold markup is converted when published. Save an edit to refresh this preview.</small></details>
+          {% endif %}
+        </article>
+
+        <aside class="review-sidebar">
+          <section class="panel brand-fit-panel">
+            <p class="eyebrow">WHY THIS FITS YOU</p><h2>Brand rationale</h2><p>{{ draft.rationale }}</p>
+            <div class="reader-value"><strong>What the reader gets</strong><p>{{ brief.contribution }}</p></div>
+          </section>
+          <section class="panel decision-panel">
+            <p class="eyebrow">YOUR DECISION</p><h2>Approve with judgment</h2>
+            <p class="publish-impact">{% if draft.platform == 'linkedin' and publish_enabled %}Approval publishes this exact text immediately to your LinkedIn profile.{% elif draft.platform == 'x' and publish_enabled and x.username %}Approval posts this exact text immediately to X as {{ x.username }}.{% else %}Approval records this exact version. External publishing is currently unavailable.{% endif %}</p>
+            <fieldset class="approval-checklist">
+              <legend>Confirm before approval</legend>
+              <label><input type="checkbox" name="understood" value="true" required> I understand the argument.</label>
+              <label><input type="checkbox" name="checked_claims" value="true" required> I checked the source and limitations.</label>
+              <label><input type="checkbox" name="represents_me" value="true" required> This represents my view and voice.</label>
+            </fieldset>
+            <div class="decision-actions">
+              <button class="button approve" formaction="/drafts/{{ draft.id }}/approve">{% if draft.platform == 'linkedin' and publish_enabled %}Approve &amp; publish to LinkedIn{% elif draft.platform == 'x' and publish_enabled and x.username %}Approve &amp; post to X{% else %}Approve exact text{% endif %}</button>
+              <button class="button" formnovalidate formaction="/drafts/{{ draft.id }}/save">Save edit</button>
+            </div>
+            <div class="reject-control"><label for="reason">If it is not right</label><input id="reason" name="reason" value="Needs revision"><button class="text-button danger" formnovalidate formaction="/drafts/{{ draft.id }}/reject">Reject draft</button></div>
+          </section>
+        </aside>
+      </section>
+    </form>
+    {% else %}
+    <section class="review-layout">
+      <article class="panel compose-panel"><p class="eyebrow">EXACT PUBLIC TEXT</p><h2>Final post</h2><textarea rows="22" readonly>{{ draft.body }}</textarea>{% if draft.platform == 'linkedin' %}<details class="inline-disclosure"><summary>Preview LinkedIn formatting</summary><div class="linkedin-preview">{{ linkedin_preview }}</div></details>{% endif %}</article>
+      <aside class="review-sidebar"><section class="panel brand-fit-panel"><p class="eyebrow">WHY THIS FITS YOU</p><h2>Brand rationale</h2><p>{{ draft.rationale }}</p></section></aside>
     </section>
     {% endif %}
-    {% if draft.status == 'published' %}
-    <section class="success-banner">
-      <strong>Published successfully.</strong>
-      {% if draft.platform == 'x' %}
-      <a href="https://x.com/i/web/status/{{ draft.external_post_id }}" target="_blank" rel="noreferrer">View on X</a>
-      {% else %}
-      <a href="https://www.linkedin.com/feed/update/{{ draft.external_post_id }}/" target="_blank" rel="noreferrer">View on LinkedIn</a>
-      {% endif %}
+
+    {% if card %}
+    <section class="panel media-panel">
+      <div><p class="eyebrow">POST IMAGE</p><h2>{{ 'Attached to this post' if card.enabled else 'Image turned off' }}</h2>{% if card.enabled %}<img class="card-preview" src="/drafts/{{ draft.id }}/card.png" alt="Post image: {{ card.title or card.headline }}">{% else %}<p class="section-note">This post will publish as text only.</p>{% endif %}</div>
+      {% if draft.status not in ['publishing', 'published'] %}<form method="post" action="/drafts/{{ draft.id }}/card"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="enabled" value="{{ 'false' if card.enabled else 'true' }}"><button class="button" type="submit">{{ "Post without image" if card.enabled else "Attach image again" }}</button></form>{% endif %}
     </section>
     {% endif %}
-    {% if x_problem and draft.status not in ['published'] %}
-    <section class="error-banner"><strong>Fix before posting:</strong> {{ x_problem }}</section>
-    {% endif %}
-    {% if draft.platform == 'x' and publish_enabled and not x.username %}
-    <section class="safety-banner">X is not connected yet. Approving records your decision; connect X on the dashboard, then use "Publish approved text".</section>
-    {% endif %}
 
-    <section class="two-column">
-      <article class="panel compose-panel">
-        <p class="eyebrow">EXACT PUBLIC TEXT</p>
-        <h2>Edit and decide</h2>
+    {% if draft.status in ['approved', 'publish_failed'] and publish_enabled and (draft.platform == 'linkedin' or x.username) %}<form class="standalone-action" method="post" action="/drafts/{{ draft.id }}/publish"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button approve" type="submit">{% if draft.status == 'publish_failed' %}Retry {{ platform_name }} publish{% else %}Publish approved text to {{ platform_name }}{% endif %}</button></form>{% endif %}
+    {% if draft.status in ['approved', 'exported', 'published'] %}<form class="standalone-action" method="post" action="/drafts/{{ draft.id }}/export"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button" type="submit">Export local copy</button></form>{% endif %}
 
-        {% if draft.status in ['pending_approval', 'rejected'] %}
-        <form method="post">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <textarea name="body" rows="25" spellcheck="true">{{ draft.body }}</textarea>
-          <fieldset class="approval-checklist">
-            <legend>Approval means all three are true</legend>
-            <label><input type="checkbox" name="understood" value="true" required> I understand the research argument and can discuss it.</label>
-            <label><input type="checkbox" name="checked_claims" value="true" required> I reviewed the claims, source status, and limitations.</label>
-            <label><input type="checkbox" name="represents_me" value="true" required> This exact text represents my current view and voice.</label>
-          </fieldset>
-          <div class="action-row">
-            <button class="button" formaction="/drafts/{{ draft.id }}/save">Save edit</button>
-            <button class="button approve" formaction="/drafts/{{ draft.id }}/approve">
-              {% if draft.platform == 'linkedin' and publish_enabled %}Approve & publish to LinkedIn
-              {% elif draft.platform == 'x' and publish_enabled and x.username %}Approve & post to X as {{ x.username }}
-              {% else %}Approve exact text{% endif %}
-            </button>
-          </div>
-        </form>
-        <form class="reject-form" method="post" action="/drafts/{{ draft.id }}/reject">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input name="reason" value="Needs revision">
-          <button class="button reject" type="submit">Reject</button>
-        </form>
-        {% else %}
-        <textarea rows="25" readonly>{{ draft.body }}</textarea>
-        {% endif %}
-
-        {% if draft.platform == 'linkedin' %}
-        <p class="eyebrow" style="margin-top:24px">HOW IT WILL LOOK ON LINKEDIN</p>
-        <div class="linkedin-preview">{{ linkedin_preview }}</div>
-        <small>**Text** becomes bold. Save an edit to refresh this preview.</small>
-        {% endif %}
-
-        {% if card %}
-        <p class="eyebrow" style="margin-top:24px">IMAGE ATTACHED TO THE POST</p>
-        {% if card.enabled %}
-        <img class="card-preview" src="/drafts/{{ draft.id }}/card.png" alt="Post image: {{ card.title or card.headline }}">
-        {% else %}
-        <p class="empty">Image turned off: this post will be published as text only.</p>
-        {% endif %}
-        {% if draft.status not in ['publishing', 'published'] %}
-        <form method="post" action="/drafts/{{ draft.id }}/card">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="enabled" value="{{ 'false' if card.enabled else 'true' }}">
-          <button class="button" type="submit">{{ "Post without image" if card.enabled else "Attach image again" }}</button>
-        </form>
-        {% endif %}
-        {% endif %}
-
-        {% if draft.status in ['approved', 'publish_failed'] and publish_enabled and (draft.platform == 'linkedin' or x.username) %}
-        <form method="post" action="/drafts/{{ draft.id }}/publish">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button approve" type="submit">{% if draft.status == 'publish_failed' %}Retry {{ platform_name }} publish{% else %}Publish approved text to {{ platform_name }}{% endif %}</button>
-        </form>
-        {% endif %}
-
-        {% if draft.status in ['approved', 'exported', 'published'] %}
-        <form method="post" action="/drafts/{{ draft.id }}/export">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button" type="submit">Export local copy</button>
-        </form>
-        {% endif %}
-      </article>
-
-      <aside>
-        <section class="panel evidence-panel">
-          <p class="eyebrow">SOURCE</p>
-          <h2><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.title }}</a></h2>
-          <dl>
-            <dt>Publisher/source</dt><dd>{{ item.source_name }}</dd>
-            <dt>Status</dt><dd>{{ item.publication_status.replace('_', ' ') }}</dd>
-            <dt>Relevance score</dt><dd>{{ "%.1f"|format(item.score) }}/100</dd>
-            <dt>Topic</dt><dd>{{ item.topic.replace('_', ' ') }}</dd>
-            <dt>Industry</dt><dd>{{ item.industry.replace('_', ' ') }}</dd>
-          </dl>
-        </section>
-
-        <section class="panel evidence-panel">
-          <p class="eyebrow">RESEARCH BRIEF</p>
-          <h3>Problem</h3><p>{{ brief.problem }}</p>
-          <h3>Contribution</h3><p>{{ brief.contribution }}</p>
-          <h3>Evidence</h3><p>{{ brief.evidence }}</p>
-          <h3>Limitations</h3><p>{{ brief.limitations }}</p>
-          <h3>Cloud implications</h3><p>{{ brief.cloud_implications }}</p>
-        </section>
-
-        <section class="panel evidence-panel">
-          <p class="eyebrow">CLAIM LEDGER</p>
-          {% for claim in claims %}
-          <div class="claim">
-            <p>{{ claim.claim_text }}</p>
-            <small>{{ claim.verification_status.replace('_', ' ') }} · confidence {{ "%.0f"|format(claim.confidence * 100) }}%</small>
-          </div>
-          {% endfor %}
-        </section>
-      </aside>
+    <section class="evidence-section">
+      <div class="panel-heading"><div><p class="eyebrow">EVIDENCE BEHIND THE POST</p><h2>Verify before you represent it</h2></div><a class="button compact" href="{{ item.url }}" target="_blank" rel="noreferrer">Open original source</a></div>
+      <div class="evidence-grid">
+        <section class="panel evidence-panel source-panel"><p class="eyebrow">SOURCE</p><h3><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.title }}</a></h3><dl><dt>Publisher</dt><dd>{{ item.source_name }}</dd><dt>Status</dt><dd>{{ item.publication_status.replace('_', ' ') }}</dd><dt>Relevance</dt><dd>{{ "%.1f"|format(item.score) }}/100</dd><dt>Topic</dt><dd>{{ item.topic.replace('_', ' ') }}</dd><dt>Industry</dt><dd>{{ item.industry.replace('_', ' ') }}</dd></dl></section>
+        <section class="panel evidence-panel brief-panel"><p class="eyebrow">RESEARCH BRIEF</p><div class="brief-grid"><div><h3>Problem</h3><p>{{ brief.problem }}</p></div><div><h3>Contribution</h3><p>{{ brief.contribution }}</p></div><div><h3>Evidence</h3><p>{{ brief.evidence }}</p></div><div><h3>Limitations</h3><p>{{ brief.limitations }}</p></div><div><h3>Cloud implications</h3><p>{{ brief.cloud_implications }}</p></div></div></section>
+        <section class="panel evidence-panel claims-panel"><p class="eyebrow">CLAIM LEDGER</p>{% for claim in claims %}<div class="claim"><p>{{ claim.claim_text }}</p><small>{{ claim.verification_status.replace('_', ' ') }} · confidence {{ "%.0f"|format(claim.confidence * 100) }}%</small></div>{% else %}<p class="section-note">No separate factual claims recorded.</p>{% endfor %}</section>
+      </div>
     </section>
   </main>
 </body>

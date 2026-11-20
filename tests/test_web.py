@@ -67,6 +67,12 @@ def test_approval_requires_integrity_checklist(tmp_path: Path):
     )
 
     client = TestClient(create_app(settings))
+    review_page = client.get("/drafts/draft_web")
+    assert review_page.status_code == 200
+    assert "WHY THIS FITS YOU" in review_page.text
+    assert "Approve with judgment" in review_page.text
+    assert "Approve exact text" in review_page.text
+
     incomplete = client.post(
         "/drafts/draft_web/approve",
         data={"body": "Exact text"},
@@ -139,6 +145,7 @@ def test_dashboard_shows_research_item_count(tmp_path: Path):
     assert "built-in method" not in page.text
     assert "<span>1</span><small>signals in research library</small>" in page.text
     assert "Research is a funnel, not a post counter" in page.text
+    assert page.text.index("Posts ready for review") < page.text.index("Research is a funnel, not a post counter")
 
 
 def test_dashboard_separates_actionable_and_published_drafts(tmp_path: Path):
@@ -187,6 +194,29 @@ def test_dashboard_separates_actionable_and_published_drafts(tmp_path: Path):
     assert page.text.count("Published history title") == 1
     assert "Recently published" in page.text
     assert "No LinkedIn draft needs action" in page.text
+
+
+def test_dashboard_surfaces_latest_run_warnings(tmp_path: Path):
+    settings = _minimal_settings(tmp_path)
+    database = Database(settings.database_path)
+    database.initialize()
+    database.start_run("run_warning")
+    database.finish_run(
+        "run_warning",
+        status="completed_with_warnings",
+        discovered_count=20,
+        new_item_count=2,
+        brief_count=1,
+        draft_count=1,
+        errors=["AI fallback used after provider overload"],
+    )
+
+    page = TestClient(create_app(settings)).get("/")
+
+    assert page.status_code == 200
+    assert "1 warning" in page.text
+    assert "AI fallback used after provider overload" in page.text
+    assert "20 scanned · 2 new · 1 brief · 1 draft" in page.text
 
 
 def test_run_research_returns_immediately_and_blocks_overlap(tmp_path: Path, monkeypatch):

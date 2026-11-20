@@ -8,238 +8,131 @@
 </head>
 <body>
   <main class="shell">
-    <header class="hero">
-      <div>
-        <p class="eyebrow">PRIVATE BRAND OPERATING SYSTEM</p>
-        <h1>Frontier Brand Agent</h1>
-        <p class="subtitle">Cloud × AI research → evidence → content → your approval → LinkedIn.</p>
+    <nav class="topbar" aria-label="Dashboard sections">
+      <a class="wordmark" href="#top" aria-label="Frontier Brand Agent home">
+        <span class="wordmark-mark">F</span><span>Frontier</span>
+      </a>
+      <div class="nav-links">
+        <a href="#approval-queue">Drafts</a><a href="#research">Research</a>
+        <a href="#missions">Missions</a><a href="#activity">Activity</a>
       </div>
-      <div class="header-actions">
+      {% if user %}
+      <form method="post" action="/auth/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="text-button" type="submit">Sign out</button>
+      </form>
+      {% endif %}
+    </nav>
+
+    <header class="workspace-hero" id="top">
+      <div>
+        <p class="eyebrow">YOUR BRAND WORKSPACE</p>
+        <h1>{% if actionable_count %}{{ actionable_count }} post{% if actionable_count != 1 %}s{% endif %} need your judgment.{% else %}You are caught up.{% endif %}</h1>
+        <p class="subtitle">{% if actionable_count %}Review the exact wording, verify the evidence, and publish only what represents you.{% else %}The agent will keep researching Cloud × AI ideas for the next strong post.{% endif %}</p>
+      </div>
+      <div class="hero-actions">
+        {% if actionable_count %}<a class="button primary" href="#approval-queue">Review ready drafts</a>{% endif %}
         <form method="post" action="/pipeline/run">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button primary" type="submit" {% if research_running %}disabled{% endif %}>
-            {{ "Research running…" if research_running else "Run research now" }}
-          </button>
+          <button class="button" type="submit" {% if research_running %}disabled{% endif %}>{{ "Research running…" if research_running else "Run research" }}</button>
         </form>
-        {% if user %}
-        <form method="post" action="/auth/logout">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button" type="submit">Sign out</button>
-        </form>
-        {% endif %}
       </div>
     </header>
 
-    <section class="safety-banner">
-      <strong>LinkedIn publishing is {{ "enabled" if publish_enabled else "disabled" }}.</strong>
-      {% if publish_enabled %}
-        Approval publishes only the exact reviewed LinkedIn text. LinkedIn is {{ "connected" if linkedin_connected else "not connected" }}.
-      {% else %}
-        Approval is recorded but cannot write to LinkedIn until production publishing is enabled.
+    <section class="connection-bar" aria-label="Platform connections">
+      <div class="connection-status {{ 'connected' if linkedin_connected else 'attention' }}">
+        <span class="status-dot" aria-hidden="true"></span>
+        <div><strong>LinkedIn {{ 'connected' if linkedin_connected else 'not connected' }}</strong><small>{{ 'Approval publishes the reviewed text.' if publish_enabled else 'Publishing is currently disabled.' }}</small></div>
+      </div>
+      {% if x.configured %}
+      <div class="connection-status {{ 'connected' if x.username else 'attention' }}">
+        <span class="status-dot" aria-hidden="true"></span>
+        <div><strong>{% if x.username %}X connected as {{ x.username }}{% else %}X not connected{% endif %}</strong><small>{% if x.username %}Approval posts the reviewed text.{% else %}Connect X before publishing.{% endif %}</small></div>
+        {% if x.username %}
+        <form method="post" action="/auth/x/disconnect"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="text-button" type="submit">Disconnect</button></form>
+        {% else %}<a class="text-button" href="/auth/x/login">Connect</a>{% endif %}
+      </div>
       {% endif %}
     </section>
-
-    {% if x.configured %}
-    <section class="safety-banner">
-      {% if x.username %}
-        <strong>X connected as {{ x.username }}.</strong> Approving an X draft posts it there.
-        {% if x_just_connected %}Connection successful.{% endif %}
-        <form method="post" action="/auth/x/disconnect" style="display:inline">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button" type="submit">Disconnect X</button>
-        </form>
-      {% else %}
-        <strong>X is not connected.</strong>
-        <a class="button primary" href="/auth/x/login">Connect X</a>
-      {% endif %}
-    </section>
-    {% endif %}
 
     {% if research_running or research_notice %}
-    <section class="safety-banner">
-      {% if research_running %}
-        <strong>Research is running in the background.</strong>
-        It usually takes 1–5 minutes (longer when AI writes new drafts). Refresh this page; the run appears under Run history when finished.
-      {% elif research_notice == 'already_running' %}
-        <strong>A research run is already in progress.</strong>
-      {% else %}
-        <strong>Research run finished.</strong> See Run history below for the result.
-      {% endif %}
-      {% if queue_full %}
-        <br>Every platform queue is full, so this run can refresh research but cannot create another draft until you review one.
-      {% endif %}
+    <section class="notice-bar" role="status">
+      {% if research_running %}<strong>Research is running in the background.</strong> This page will show the result when the run finishes.
+      {% elif research_notice == 'already_running' %}<strong>A research run is already in progress.</strong>
+      {% else %}<strong>Research run finished.</strong> See the latest result below.{% endif %}
+      {% if queue_full %} Every platform queue is full, so research can refresh but drafting is paused.{% endif %}
     </section>
     {% endif %}
 
-    <section class="metrics">
-      <article><span>{{ counts['items'] }}</span><small>signals in research library</small></article>
-      <article><span>{{ counts.briefs }}</span><small>topics promoted to briefs</small></article>
-      <article><span>{{ counts.pending }}</span><small>drafts awaiting approval</small></article>
-      <article><span>{{ counts.published }}</span><small>posts published</small></article>
-      <article><span>{{ counts.missions }}</span><small>growth missions</small></article>
+    <section class="today-grid" aria-label="Today at a glance">
+      {% for platform, status in queue.items() %}
+      <article class="metric-card {{ 'warning' if status.full else '' }}">
+        <div class="metric-label"><span class="badge {{ platform }}">{{ 'LinkedIn' if platform == 'linkedin' else platform|upper }}</span> ready</div>
+        <strong>{{ status.pending }}<span>/{{ status.limit }}</span></strong>
+        <small>{% if status.full %}Queue full — review before more are drafted{% else %}{{ status.limit - status.pending }} spaces available{% endif %}</small>
+      </article>
+      {% endfor %}
+      <article class="metric-card"><div class="metric-label">Published this week</div><strong>{{ published_this_week }}</strong><small>{{ counts.published }} published in total</small></article>
+      <article class="metric-card"><div class="metric-label">Latest research run</div><strong>{{ latest_run.draft_count if latest_run else 0 }}<span> draft{% if not latest_run or latest_run.draft_count != 1 %}s{% endif %}</span></strong><small>{% if latest_run %}{{ latest_run.local_started }}{% else %}No run recorded yet{% endif %}</small></article>
+      <article class="metric-card {{ 'warning' if latest_run and latest_run.error_count else '' }}"><div class="metric-label">Run health</div><strong>{% if latest_run and latest_run.error_count %}{{ latest_run.error_count }}<span> warning{% if latest_run.error_count != 1 %}s{% endif %}</span>{% else %}Clear{% endif %}</strong><small>{% if latest_run and latest_run.error_count %}Fallbacks were used; details below{% else %}No warning in the latest run{% endif %}</small></article>
     </section>
 
-    <section class="panel pipeline-panel">
-      <p class="eyebrow">WHAT THE AUTOMATION DID</p>
-      <h2>Research is a funnel, not a post counter</h2>
-      <div class="funnel-flow" aria-label="Research pipeline">
-        <div><strong>1. Scan</strong><span>papers, journals, engineering sources</span></div>
-        <b>→</b>
-        <div><strong>2. Store</strong><span>deduplicate the useful signals</span></div>
-        <b>→</b>
-        <div><strong>3. Verify</strong><span>promote strong evidence to a brief</span></div>
-        <b>→</b>
-        <div><strong>4. Draft</strong><span>write only when that platform has room</span></div>
+    <section class="panel priority-panel" id="approval-queue">
+      <div class="panel-heading">
+        <div><p class="eyebrow">NEEDS YOUR ATTENTION</p><h2>Posts ready for review</h2><p class="section-note">Nothing is published until you open a draft and approve its exact text.</p></div>
+        <span class="count-pill">{{ actionable_count }} waiting</span>
       </div>
-      {% if latest_run %}
-      <p class="run-summary">
-        <strong>Latest run:</strong> scanned {{ latest_run.discovered_count }} source results,
-        added {{ latest_run.new_item_count or 0 }} new signals to the library,
-        created {{ latest_run.brief_count }} evidence brief{% if latest_run.brief_count != 1 %}s{% endif %}
-        and {{ latest_run.draft_count }} draft{% if latest_run.draft_count != 1 %}s{% endif %}.
-      </p>
-      {% endif %}
-      <div class="queue-strip">
-        {% for platform, status in queue.items() %}
-        <div>
-          <span class="badge {{ platform }}">{{ 'LinkedIn' if platform == 'linkedin' else platform|upper }}</span>
-          <strong>{{ status.pending }}/{{ status.limit }}</strong> pending
-          {% if status.full %}<small>Queue full: this platform pauses drafting.</small>{% else %}<small>{{ status.limit - status.pending }} draft slots available.</small>{% endif %}
-        </div>
-        {% endfor %}
-      </div>
-    </section>
-
-    <section class="panel">
-      <p class="eyebrow">PRIVATE GROWTH LOOP</p>
-      <h2>Turn research into demonstrated capability</h2>
-      {% if missions %}
-      <div class="mission-list">
-        {% for mission in missions %}
-        <article class="mission-card">
-          <div>
-            <div class="card-meta">
-              <span class="status {{ mission.status }}">{{ mission.status }}</span>
-              {% if mission.due_at %}<span>due {{ mission.due_at[:10] }}</span>{% endif %}
-            </div>
-            <h3>{{ mission.title }}</h3>
-            <p>{{ mission.objective }}</p>
-            <small>Evidence: {{ mission.evidence_required }}</small>
-          </div>
-          <div class="mission-actions">
-            {% if mission.status == 'proposed' %}
-            <form method="post" action="/missions/{{ mission.id }}/activate">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button class="button" type="submit">Start mission</button>
-            </form>
-            {% else %}
-            <form method="post" action="/missions/{{ mission.id }}/complete">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <textarea name="reflection" rows="3" minlength="40" required placeholder="Explain the idea in your own words, then add a disagreement, question, or experiment."></textarea>
-              <button class="button approve" type="submit">Complete with evidence</button>
-            </form>
-            {% endif %}
-          </div>
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p class="empty">Missions appear alongside selected research topics.</p>
-      {% endif %}
-    </section>
-
-    <section class="panel">
-      <p class="eyebrow">APPROVAL QUEUE</p>
-      <h2>Posts ready for your judgment</h2>
-      <p class="section-note">Only drafts that still need action appear here. Published posts are shown separately below.</p>
       {% for platform, drafts in drafts_by_platform.items() %}
-      <div class="platform-queue">
-        <div class="section-heading">
-          <h3>{{ 'LinkedIn' if platform == 'linkedin' else platform|upper }}</h3>
-          <span>{{ queue[platform].pending }}/{{ queue[platform].limit }} pending</span>
-        </div>
+      <details class="platform-queue" {% if platform == 'linkedin' or not queue[platform].full %}open{% endif %}>
+        <summary><span><span class="badge {{ platform }}">{{ 'LinkedIn' if platform == 'linkedin' else platform|upper }}</span> {{ drafts|length }} ready</span><small>{% if queue[platform].full %}Queue full{% else %}{{ queue[platform].limit - queue[platform].pending }} spaces available{% endif %}</small></summary>
         {% if drafts %}
         <div class="draft-grid">
           {% for draft in drafts %}
-        <a class="draft-card" href="/drafts/{{ draft.id }}">
-          <div class="card-meta">
-            <span class="badge {{ draft.platform }}">{{ draft.platform }}</span>
-            <span class="status {{ draft.status }}">{{ draft.status.replace('_', ' ') }}</span>
-          </div>
-          <h3>{{ draft.title }}</h3>
-          <p>{{ draft.body[:220] }}{% if draft.body|length > 220 %}…{% endif %}</p>
-          <small>Risk: {{ draft.risk_level }} · {{ draft.created_at[:16].replace('T', ' ') }} UTC</small>
-        </a>
+          <article class="draft-card">
+            <div class="card-meta"><span class="status {{ draft.status }}">{{ draft.status.replace('_', ' ') }}</span><span>Risk: {{ draft.risk_level }}</span></div>
+            <h3><a href="/drafts/{{ draft.id }}">{{ draft.title }}</a></h3>
+            <p>{{ draft.body[:190] }}{% if draft.body|length > 190 %}…{% endif %}</p>
+            <div class="card-footer"><small>{{ draft.created_at|local_time }}</small><a class="button compact" href="/drafts/{{ draft.id }}">Review &amp; decide</a></div>
+          </article>
           {% endfor %}
         </div>
-        {% else %}
-        <p class="empty compact">No {{ 'LinkedIn' if platform == 'linkedin' else platform|upper }} draft needs action.</p>
-        {% endif %}
-      </div>
+        {% else %}<p class="empty compact">No {{ 'LinkedIn' if platform == 'linkedin' else platform|upper }} draft needs action.</p>{% endif %}
+      </details>
       {% endfor %}
     </section>
 
-    <section class="panel">
-      <p class="eyebrow">PUBLISHING HISTORY</p>
-      <h2>Recently published</h2>
-      {% if recent_published %}
-      <div class="draft-grid">
-        {% for draft in recent_published %}
-        <a class="draft-card" href="/drafts/{{ draft.id }}">
-          <div class="card-meta">
-            <span class="badge {{ draft.platform }}">{{ draft.platform }}</span>
-            <span class="status published">published</span>
-          </div>
-          <h3>{{ draft.title }}</h3>
-          <p>{{ draft.body[:180] }}{% if draft.body|length > 180 %}…{% endif %}</p>
-          <small>{{ draft.published_at[:16].replace('T', ' ') if draft.published_at else draft.updated_at[:16].replace('T', ' ') }} UTC</small>
-        </a>
-        {% endfor %}
+    <details class="panel disclosure pipeline-panel">
+      <summary><span><span class="eyebrow">HOW THE AUTOMATION WORKS</span><strong>Research is a funnel, not a post counter</strong></span><small>Latest run: {% if latest_run %}{{ latest_run.discovered_count }} scanned → {{ latest_run.new_item_count or 0 }} new → {{ latest_run.brief_count }} brief{% if latest_run.brief_count != 1 %}s{% endif %} → {{ latest_run.draft_count }} draft{% if latest_run.draft_count != 1 %}s{% endif %}{% else %}no result yet{% endif %}</small></summary>
+      <div class="funnel-flow" aria-label="Research pipeline">
+        <div><strong>Scan</strong><span>Papers, journals, and engineering sources</span></div><div><strong>Store</strong><span>Deduplicate useful signals</span></div><div><strong>Verify</strong><span>Promote evidence strong enough for a brief</span></div><div><strong>Draft</strong><span>Write only when that platform has room</span></div>
       </div>
-      {% else %}<p class="empty compact">No published posts yet.</p>{% endif %}
+      <div class="library-metrics"><article><span>{{ counts['items'] }}</span><small>signals in research library</small></article><article><span>{{ counts.briefs }}</span><small>evidence briefs</small></article><article><span>{{ counts.missions }}</span><small>active growth missions</small></article></div>
+      <p class="section-note">A signal may stop before drafting when it is duplicated, weakly sourced, low relevance, or when its platform queue is full.</p>
+    </details>
+
+    <section class="panel" id="missions">
+      <div class="panel-heading"><div><p class="eyebrow">PRIVATE GROWTH LOOP</p><h2>Turn research into demonstrated capability</h2></div><span class="count-pill">{{ counts.missions }} active</span></div>
+      {% if missions %}<div class="mission-list">
+        {% for mission in missions[:3] %}<article class="mission-card">
+          <div><div class="card-meta"><span class="status {{ mission.status }}">{{ mission.status }}</span>{% if mission.due_at %}<span>Due {{ mission.due_at|local_date }}</span>{% endif %}</div><h3>{{ mission.title }}</h3><p>{{ mission.objective }}</p><small>Evidence: {{ mission.evidence_required }}</small></div>
+          <div class="mission-actions">{% if mission.status == 'proposed' %}<form method="post" action="/missions/{{ mission.id }}/activate"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button" type="submit">Start mission</button></form>{% else %}<form method="post" action="/missions/{{ mission.id }}/complete"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><textarea name="reflection" rows="3" minlength="40" required placeholder="Explain the idea in your words, then add a disagreement, question, or experiment."></textarea><button class="button approve" type="submit">Complete with evidence</button></form>{% endif %}</div>
+        </article>{% endfor %}
+      </div>{% else %}<p class="empty compact">Missions appear alongside selected research topics.</p>{% endif %}
     </section>
 
-    <section class="panel">
-      <p class="eyebrow">RESEARCH RADAR</p>
-      <h2>Highest-value Cloud × AI signals</h2>
-      <div class="research-list">
-        {% for item in items %}
-        <article class="research-row">
-          <div class="score">{{ "%.0f"|format(item.score) }}</div>
-          <div>
-            <div class="card-meta">
-              <span class="badge">{{ item.topic.replace('_', ' ') }}</span>
-              <span>{{ item.publication_status.replace('_', ' ') }}</span>
-            </div>
-            <h3><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.title }}</a></h3>
-            <p>{{ item.abstract[:300] }}{% if item.abstract|length > 300 %}…{% endif %}</p>
-            <small>{{ item.source_name }} · {{ item.industry.replace('_', ' ') }}</small>
-          </div>
-        </article>
-        {% endfor %}
-      </div>
+    <section class="panel" id="research">
+      <div class="panel-heading"><div><p class="eyebrow">TOP RESEARCH IDEAS</p><h2>Strongest Cloud × AI signals</h2><p class="section-note">The highest-ranked current ideas—not every stored research result.</p></div><span class="count-pill">Top {{ items|length }}</span></div>
+      <div class="research-list">{% for item in items %}<article class="research-row"><div class="score" aria-label="Relevance score {{ '%.0f'|format(item.score) }}">{{ "%.0f"|format(item.score) }}</div><div><div class="card-meta"><span class="badge">{{ item.topic.replace('_', ' ') }}</span><span>{{ item.publication_status.replace('_', ' ') }}</span></div><h3><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.title }}</a></h3><p>{{ item.abstract[:240] }}{% if item.abstract|length > 240 %}…{% endif %}</p><small>{{ item.source_name }} · {{ item.industry.replace('_', ' ') }}</small></div></article>{% endfor %}</div>
     </section>
 
-    <section class="panel">
-      <p class="eyebrow">RUN HISTORY</p>
-      <h2>Automation health</h2>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Started</th><th>Status</th><th>Scanned</th><th>New signals</th><th>Briefs</th><th>Drafts</th></tr></thead>
-          <tbody>
-          {% for run in runs %}
-            <tr>
-              <td>{{ run.started_at[:19].replace('T', ' ') }} UTC</td>
-              <td>{{ run.status.replace('_', ' ') }}</td>
-              <td>{{ run.discovered_count }}</td>
-              <td>{{ run.new_item_count or 0 }}</td>
-              <td>{{ run.brief_count }}</td>
-              <td>{{ run.draft_count }}</td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
+    <section class="panel" id="published">
+      <div class="panel-heading"><div><p class="eyebrow">PUBLISHING HISTORY</p><h2>Recently published</h2></div><span class="count-pill">{{ counts.published }} total</span></div>
+      {% if recent_published %}<div class="draft-grid compact-grid">{% for draft in recent_published %}<article class="draft-card"><div class="card-meta"><span class="badge {{ draft.platform }}">{{ draft.platform }}</span><span class="status published">published</span></div><h3><a href="/drafts/{{ draft.id }}">{{ draft.title }}</a></h3><p>{{ draft.body[:140] }}{% if draft.body|length > 140 %}…{% endif %}</p><small>{{ (draft.published_at or draft.updated_at)|local_time }}</small></article>{% endfor %}</div>{% else %}<p class="empty compact">No published posts yet.</p>{% endif %}
+    </section>
+
+    <section class="panel" id="activity">
+      <div class="panel-heading"><div><p class="eyebrow">AUTOMATION HEALTH</p><h2>Recent research runs</h2></div>{% if latest_run %}<span class="status {{ latest_run.status }}">{{ latest_run.status.replace('_', ' ') }}</span>{% endif %}</div>
+      <div class="run-list">{% for run in runs %}<details class="run-card" {% if loop.first and run.error_count %}open{% endif %}><summary><span><strong>{{ run.local_started }}</strong><small>{{ run.discovered_count }} scanned · {{ run.new_item_count or 0 }} new · {{ run.brief_count }} brief{% if run.brief_count != 1 %}s{% endif %} · {{ run.draft_count }} draft{% if run.draft_count != 1 %}s{% endif %}</small></span><span class="run-result {{ 'warning' if run.error_count else 'ok' }}">{% if run.error_count %}{{ run.error_count }} warning{% if run.error_count != 1 %}s{% endif %}{% else %}Completed{% endif %}</span></summary>{% if run.errors %}<ul class="warning-list">{% for error in run.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% else %}<p class="section-note">No errors or fallback warnings were recorded.</p>{% endif %}</details>{% else %}<p class="empty compact">No research runs recorded yet.</p>{% endfor %}</div>
     </section>
   </main>
 </body>
