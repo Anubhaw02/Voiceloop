@@ -1,0 +1,66 @@
+{% macro pagination(pager) %}
+{% if pager.previous or pager.next %}
+<nav class="pager" aria-label="Result pages">
+  {% if pager.previous %}<a class="button compact" href="{{ pager.previous }}">Previous</a>{% endif %}
+  <span>Page {{ pager.number }}</span>
+  {% if pager.next %}<a class="button compact" href="{{ pager.next }}">Next</a>{% endif %}
+</nav>
+{% endif %}
+{% endmacro %}
+
+{% macro draft_card(draft, source, show_platform=false) %}
+<article class="draft-card">
+  <div class="card-meta">
+    {% if show_platform %}<span class="badge {{ draft.platform }}">{{ draft.platform|platform_label }}</span>{% endif %}
+    <span class="status {{ draft.status }}">{{ draft.status.replace('_', ' ') }}</span>
+    {% if draft.status != 'published' %}<span>Risk: {{ draft.risk_level }}</span>{% endif %}
+  </div>
+  <h3><a href="/drafts/{{ draft.id }}">{{ draft.title }}</a></h3>
+  {% if source %}<small class="source-label">{{ source.source_name }} · {{ source.publication_status.replace('_', ' ') }}</small>{% endif %}
+  <p>{{ draft.body[:150] }}{% if draft.body|length > 150 %}…{% endif %}</p>
+  <div class="card-footer">
+    <small>{{ (draft.published_at or draft.updated_at if draft.status == 'published' else draft.created_at)|local_time }}</small>
+    <a class="button compact" href="/drafts/{{ draft.id }}">{% if draft.status == 'published' %}View post &amp; feedback{% elif draft.status == 'publish_failed' %}Review failure{% else %}Open draft{% endif %}</a>
+  </div>
+</article>
+{% endmacro %}
+
+{% macro research_card(item, detailed=false) %}
+<article class="research-row">
+  <div class="score" aria-label="Relevance score {{ '%.0f'|format(item.score) }}">{{ "%.0f"|format(item.score) }}</div>
+  <div>
+    <div class="card-meta"><span class="badge">{{ item.topic|pillar_label }}</span><span>{{ item.publication_status.replace('_', ' ') }}</span></div>
+    <h3><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.title }}</a></h3>
+    <p>{{ item.abstract[:320] }}{% if item.abstract|length > 320 %}…{% endif %}</p>
+    <small>{{ item.source_name }} · {{ item.industry.replace('_', ' ') }}{% if item.published_at %} · {{ item.published_at[:10] }}{% endif %}</small>
+    {% if detailed and item.score_breakdown %}
+    <details class="inline-disclosure"><summary>How this was ranked</summary>
+      <p class="section-note">A relevance score ranks ideas; it is not a measure of whether a claim is true.</p>
+      <ul class="score-parts">{% for key, value in item.score_breakdown.items() %}<li>{{ key.replace('_', ' ') }}: {{ "%.1f"|format(value) }}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+  </div>
+</article>
+{% endmacro %}
+
+{% macro mission_card(mission, csrf_token) %}
+<article class="mission-card">
+  <div>
+    <div class="card-meta"><span class="status {{ mission.status }}">{{ mission.status }}</span>
+      {% if mission.due_at and mission.status != 'completed' %}<span>Due {{ mission.due_at|local_date }}</span>{% endif %}</div>
+    <h3>{{ mission.title }}</h3><p>{{ mission.objective }}</p><small>Evidence: {{ mission.evidence_required }}</small>
+  </div>
+  <div class="mission-actions">
+    {% if mission.status == 'proposed' %}
+    <form method="post" action="/missions/{{ mission.id }}/activate"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button" type="submit">Start mission</button></form>
+    {% elif mission.status == 'active' %}
+    <form method="post" action="/missions/{{ mission.id }}/complete">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="reflection-{{ mission.id }}">Your reflection</label>
+      <textarea id="reflection-{{ mission.id }}" name="reflection" rows="3" minlength="40" required placeholder="Explain the idea, then add a question, disagreement, or experiment."></textarea>
+      <button class="button approve" type="submit">Complete with evidence</button>
+    </form>
+    {% elif mission.reflection %}<details class="inline-disclosure"><summary>Your reflection</summary><p>{{ mission.reflection }}</p></details>{% endif %}
+  </div>
+</article>
+{% endmacro %}

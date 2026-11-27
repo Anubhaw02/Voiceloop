@@ -91,7 +91,9 @@ The daily workflow intentionally does not receive the LinkedIn Client Secret or 
 4. Confirm that new rows appear in the dashboard.
 5. Confirm that the reminder email arrives.
 
-The normal schedule is 08:17 every day in `Asia/Kolkata`. The non-round minute reduces the risk of GitHub schedule congestion.
+The daily workflow is scheduled for 08:17 and 14:17 in `Asia/Kolkata`. The afternoon pass can revisit topics missed earlier. The dashboard shows the next scheduled slot (actual starts can differ); keep `scheduler.cloud_daily_times` in `config/agent.yaml` in sync with `.github/workflows/daily-agent.yml`.
+
+The **Activity** section shows collected results, new library entries, briefs, drafts per platform, and reasons the draft queues did not grow. Runs recorded before this detail was added still show their original totals.
 
 ## 7. Test approval without publishing
 

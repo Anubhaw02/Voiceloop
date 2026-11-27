@@ -1,6 +1,8 @@
 # Frontier Brand Agent
 
-A private Cloud × AI research and personal-brand pipeline. It discovers credible research, ranks real-world industry relevance, creates evidence briefs and LinkedIn/X drafts, reminds the owner to review them, and publishes a LinkedIn draft only after explicit approval of the exact text.
+A private Cloud × AI research and personal-brand pipeline. It discovers credible research, ranks real-world industry relevance, creates evidence briefs and LinkedIn/X drafts, reminds the owner to review them, and publishes only after explicit approval of the exact text.
+
+The dashboard opens on the approval inbox. Use **Drafts** to filter the queue or open publishing history, **Research** to search the library, **Missions** to work on private reflections, and **Brand** for your positioning, weekly publishing targets, and topic mix. Targets live in `config/profile.yaml` and never publish anything automatically. Open a published post to save private feedback; engagement numbers are entered manually.
 
 ## Operating modes
 

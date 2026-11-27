@@ -38,6 +38,9 @@ audience:
     - developers and researchers
 
 content:
+  weekly_post_targets:
+    linkedin: 2
+    x: 3
   pillars:
     cloud_for_ai: 35
     ai_for_cloud: 30

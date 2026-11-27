@@ -38,6 +38,14 @@ class PipelineReport:
     ai_drafts: int = 0
     ai_skipped: int = 0
     errors: list[str] = field(default_factory=list)
+    drafts_by_platform: dict[str, int] = field(default_factory=dict)
+    full_queues_at_start: list[str] = field(default_factory=list)
+    repeated_results: int = 0
+    quarantined_results: int = 0
+    already_covered: int = 0
+    below_score_threshold: int = 0
+    candidates_reviewed: int = 0
+    topics_selected: int = 0
 
 
 JUDGE_SHORTLIST = 20
@@ -63,6 +71,7 @@ class ResearchPipeline:
                 score, breakdown = score_item(item, self.settings.raw["scoring"])
                 safety_findings = scan_untrusted_text(item.title, item.abstract)
                 if safety_findings:
+                    report.quarantined_results += 1
                     score = 0
                     breakdown["safety_quarantine"] = 100.0
                     item.raw["safety_findings"] = [finding.rule for finding in safety_findings]
@@ -75,6 +84,8 @@ class ResearchPipeline:
                 is_new = self.database.upsert_item(item)
                 if is_new:
                     report.new_items += 1
+                else:
+                    report.repeated_results += 1
                 self.database.update_item_analysis(
                     item.id,
                     score=score,
@@ -93,6 +104,8 @@ class ResearchPipeline:
                 if safety_findings:
                     score = 0
                     breakdown["safety_quarantine"] = 100.0
+                elif score < 25:
+                    report.below_score_threshold += 1
                 self.database.update_item_analysis(
                     stored_item.id,
                     score=score,
@@ -110,16 +123,17 @@ class ResearchPipeline:
                 platform: max(0, pending_limit - self.database.pending_draft_count(platform))
                 for platform in platforms
             }
+            report.drafts_by_platform = dict.fromkeys(platforms, 0)
+            report.full_queues_at_start = [platform for platform, slots in available_platform_slots.items() if not slots]
             drafted_platforms = self.database.drafted_platforms_by_item()
-            candidates = [
-                item
-                for item in self.database.list_items(limit=100, minimum_score=25)
-                if any(
-                    available_platform_slots[platform] > 0
-                    and platform not in drafted_platforms.get(item.id, set())
-                    for platform in platforms
-                )
-            ]
+            candidates = []
+            for item in self.database.list_items(limit=100, minimum_score=25):
+                uncovered = set(platforms) - drafted_platforms.get(item.id, set())
+                if not uncovered:
+                    report.already_covered += 1
+                elif any(available_platform_slots[platform] > 0 for platform in uncovered):
+                    candidates.append(item)
+            report.candidates_reviewed = len(candidates)
             # AI is only spent when there is room in the approval queue.
             router = build_router(self.settings.raw) if any(available_platform_slots.values()) else None
             judge_reasons: dict[str, str] = {}
@@ -139,6 +153,7 @@ class ResearchPipeline:
                 ]
                 if not target_platforms:
                     continue
+                report.topics_selected += 1
                 is_new_brief = self.database.get_brief_for_item(item.id) is None
                 document, text_source, ai_result = "", "abstract_only", None
                 if router:
@@ -204,6 +219,7 @@ class ResearchPipeline:
                         )
                     self.database.save_draft(draft)
                     report.drafts += 1
+                    report.drafts_by_platform[platform] += 1
                     available_platform_slots[platform] -= 1
                     drafted_platforms.setdefault(item.id, set()).add(platform)
 
@@ -234,6 +250,17 @@ class ResearchPipeline:
                 brief_count=report.briefs,
                 draft_count=report.drafts,
                 errors=report.errors,
+                summary={
+                    "drafts_by_platform": report.drafts_by_platform,
+                    "full_queues_at_start": report.full_queues_at_start,
+                    "repeated_results": report.repeated_results,
+                    "quarantined_results": report.quarantined_results,
+                    "already_covered": report.already_covered,
+                    "below_score_threshold": report.below_score_threshold,
+                    "candidates_reviewed": report.candidates_reviewed,
+                    "topics_selected": report.topics_selected,
+                    "ai_skipped": report.ai_skipped,
+                },
             )
         return report
 

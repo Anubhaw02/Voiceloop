@@ -1,0 +1,39 @@
+{% extends "workspace_base.html" %}
+{% block title %}Brand progress · Frontier Brand Agent{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <p class="eyebrow">YOUR PRIVATE STRATEGY</p><h1>Brand progress</h1>
+  <p class="subtitle">Track how consistently you publish and which topics your posts emphasize.</p>
+</header>
+{% if identity %}
+<section class="panel priority-panel">
+  <p class="eyebrow">YOUR NORTH STAR</p><h2>{{ identity.archetype }}</h2>
+  <p class="north-star">{{ identity.identity_statement }}</p><p>{{ identity.positioning }}</p>
+  {% if audience.primary %}<p><strong>Who you want to reach:</strong> {{ audience.primary|join(', ') }}</p>{% endif %}
+  {% if voice.qualities %}<p><strong>How you want to sound:</strong> {{ voice.qualities|join(', ') }}</p>{% endif %}
+</section>
+{% endif %}
+<div class="brand-grid">
+  <section class="panel">
+    <p class="eyebrow">WEEK OF {{ monday|upper }}</p><h2>Publishing cadence</h2>
+    <p class="section-note">Counts posts published by the agent. Targets are editorial goals, not automatic quotas.</p>
+    {% for platform, target, count in cadence %}<div class="progress-row">
+      <div><strong>{{ platform|platform_label }}</strong><span>{{ count }}{% if target %} / {{ target }} target{% else %} published{% endif %}</span></div>
+      {% if target %}<progress value="{{ [count, target]|min }}" max="{{ target }}" aria-label="{{ platform|platform_label }} weekly target"></progress>{% endif %}
+    </div>{% endfor %}
+  </section>
+  <section class="panel">
+    <p class="eyebrow">LAST 28 DAYS</p><h2>Content pillar balance</h2>
+    <p class="section-note">{% if total %}{{ total }} published post{% if total != 1 %}s{% endif %}. Cross-posts count once per platform.{% else %}No agent posts in this period yet.{% endif %}</p>
+    {% for topic, target, count, percent in pillars %}<div class="progress-row">
+      <div><strong>{{ topic|pillar_label }}</strong><span>{% if percent is not none %}{{ percent }}% ({{ count }}) · {% endif %}{{ target }}% plan</span></div>
+      {% if percent is not none %}<progress value="{{ percent }}" max="100" aria-label="{{ topic|pillar_label }} share of posts"></progress>{% endif %}
+    </div>{% endfor %}
+  </section>
+</div>
+<section class="panel">
+  <p class="eyebrow">AFTER PUBLISHING</p><h2>Record what worked</h2>
+  <p class="section-note">Open a published post to save impressions, comments, useful conversations, or a private note. These are observations you enter, not live platform analytics.</p>
+  <a class="button" href="/drafts?view=published">Open published history</a>
+</section>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "workspace_base.html" %}
+{% from "workspace_components.html" import research_card, pagination %}
+{% block title %}Research · Frontier Brand Agent{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <p class="eyebrow">RESEARCH LIBRARY</p><h1>Research</h1>
+  <p class="subtitle">Browse papers and engineering sources. Check publication status and open the original before relying on a finding.</p>
+</header>
+<section class="panel">
+  <form class="filter-bar" method="get" action="/research">
+    <label class="search-field">Search<input type="search" name="q" value="{{ q }}" maxlength="160" placeholder="Title or abstract"></label>
+    <label>Content pillar<select name="topic"><option value="">All topics</option>{% for key in topics %}<option value="{{ key }}" {% if topic == key %}selected{% endif %}>{{ key|pillar_label }}</option>{% endfor %}</select></label>
+    <label>Source type<select name="source"><option value="">All sources</option>{% for key in sources %}<option value="{{ key }}" {% if source == key %}selected{% endif %}>{{ key.replace('_', ' ')|capitalize }}</option>{% endfor %}</select></label>
+    <label>Order<select name="sort"><option value="relevance">Relevance</option><option value="newest" {% if sort == 'newest' %}selected{% endif %}>Newest publication</option></select></label>
+    <button class="button" type="submit">Search</button>
+  </form>
+  {% if items %}<div class="research-list">{% for item in items %}{{ research_card(item, true) }}{% endfor %}</div>
+  {% else %}<p class="empty compact">No research matches these filters. Try a broader search.</p>{% endif %}
+  {{ pagination(pager) }}
+</section>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "workspace_base.html" %}
+{% from "workspace_components.html" import mission_card, pagination %}
+{% block title %}Missions · Frontier Brand Agent{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <p class="eyebrow">PRIVATE GROWTH LOOP</p><h1>Missions</h1>
+  <p class="subtitle">Build the skills you want to be known for. Reflections are private and never published by this workflow.</p>
+</header>
+<section class="panel">
+  <form class="filter-bar" method="get" action="/missions">
+    <label>Status<select name="status"><option value="">All missions</option>{% for key, label in statuses.items() %}<option value="{{ key }}" {% if status == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <button class="button" type="submit">Apply filter</button>
+  </form>
+  {% if missions %}<div class="mission-list">{% for mission in missions %}{{ mission_card(mission, csrf_token) }}{% endfor %}</div>
+  {% else %}<p class="empty compact">No missions match this filter.</p>{% endif %}
+  {{ pagination(pager) }}
+</section>
+{% endblock %}

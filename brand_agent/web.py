@@ -6,9 +6,10 @@ import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -23,6 +24,7 @@ from .linkedin import LinkedInPublishError, publish_linkedin_draft
 from .x_client import XError, XOAuth, pkce_pair, publish_x_draft, x_include_link, x_text_problem
 from .linkedin_format import BOLD, unicode_bold
 from .pipeline import ResearchPipeline
+from .workspace import ACTIONABLE, draft_angle, next_scheduled_slot, pillar_label, platform_label, week_start
 from .publishing import (
     ApprovalRequiredError,
     PublishingDisabledError,
@@ -85,7 +87,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         parsed = parse_timestamp(value)
         if not parsed:
             return "Time unavailable"
-        return parsed.astimezone(local_zone).strftime("%d %b, %I:%M %p")
+        return parsed.astimezone(local_zone).strftime("%d %b, %I:%M %p %Z")
 
     def local_date(value: str | None) -> str:
         parsed = parse_timestamp(value)
@@ -95,18 +97,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     templates.env.filters["local_time"] = local_time
     templates.env.filters["local_date"] = local_date
+    templates.env.filters["platform_label"] = platform_label
+    templates.env.filters["pillar_label"] = pillar_label
 
     def display_run(row: dict[str, object]) -> dict[str, object]:
         prepared = dict(row)
         try:
             errors = json.loads(str(prepared.get("errors_json") or "[]"))
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except (TypeError, ValueError):
             errors = ["The run recorded an unreadable warning."]
         if not isinstance(errors, list):
             errors = [str(errors)]
         prepared["errors"] = [str(error) for error in errors]
         prepared["error_count"] = len(errors)
         prepared["local_started"] = local_time(str(prepared.get("started_at") or ""))
+        start = parse_timestamp(prepared.get("started_at"))
+        end = parse_timestamp(prepared.get("finished_at"))
+        if start and end:
+            minutes, seconds = divmod(max(0, int((end - start).total_seconds())), 60)
+            prepared["duration"] = f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+        try:
+            result = json.loads(prepared.get("summary_json") or "null")
+            prepared["result"] = result if isinstance(result, dict) else None
+        except (TypeError, ValueError):
+            prepared["result"] = None
+        prepared["label"] = {
+            "running": "Running", "failed": "Failed",
+            "completed_with_warnings": "Completed with warnings", "completed": "Completed",
+        }.get(prepared.get("status"), "Unknown")
         return prepared
 
     @app.middleware("http")
@@ -131,6 +149,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             token = new_csrf_token()
             request.session["csrf_token"] = token
         return token
+
+    def render_workspace(request: Request, name: str, section: str, **context):
+        return templates.TemplateResponse(
+            request=request,
+            name=name,
+            context={
+                "section": section, "user": request.session.get("user"),
+                "csrf_token": csrf_for(request), **context,
+            },
+        )
+
+    def pager(page: int, has_next: bool, **filters: str):
+        def link(number: int):
+            return "?" + urlencode({**{key: value for key, value in filters.items() if value}, "page": number})
+
+        return {
+            "number": page,
+            "previous": link(page - 1) if page > 1 else None,
+            "next": link(page + 1) if has_next else None,
+        }
 
     def require_csrf(request: Request, submitted: str) -> None:
         if not settings.auth_enabled:
@@ -262,49 +300,128 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if redirect:
             return redirect
         queue = queue_status()
-        actionable = database.list_drafts(
-            statuses=["pending_approval", "approved", "publish_failed"],
-            limit=40,
-        )
-        platforms = settings.raw["drafting"].get("platforms", ["linkedin"])
+        actionable_counts = database.draft_counts_by_platform(ACTIONABLE)
         drafts_by_platform = {
-            platform: [draft for draft in actionable if draft.platform == platform]
-            for platform in platforms
+            platform: database.list_drafts(statuses=ACTIONABLE, platform=platform, limit=2)
+            for platform in queue
         }
         runs = [display_run(run) for run in database.recent_runs(limit=8)]
         now_local = datetime.now(local_zone)
-        week_start_local = (now_local - timedelta(days=now_local.weekday())).replace(
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        )
-        return templates.TemplateResponse(
-            request=request,
-            name="index.html",
-            context={
+        schedule = settings.raw["scheduler"].get("cloud_daily_times", [])
+        next_run = next_scheduled_slot(now_local, schedule) if settings.is_production else None
+        return render_workspace(request, "index.html", "home", **{
                 "counts": database.dashboard_counts(),
                 "items": database.list_items(limit=3),
                 "drafts_by_platform": drafts_by_platform,
-                "actionable_count": len(actionable),
+                "actionable_counts": actionable_counts,
+                "actionable_count": sum(actionable_counts.values()),
+                "draft_sources": database.draft_sources([draft.id for group in drafts_by_platform.values() for draft in group]),
                 "recent_published": database.list_drafts(status="published", limit=3),
                 "published_this_week": database.published_draft_count_since(
-                    week_start_local.astimezone(timezone.utc).isoformat()
+                    week_start(now_local).astimezone(timezone.utc).isoformat()
                 ),
-                "missions": database.list_missions(limit=10),
+                "missions": database.list_missions(status="active", limit=1) or database.list_missions(status="proposed", limit=1),
                 "runs": runs,
                 "latest_run": runs[0] if runs else None,
-                "publish_enabled": settings.publish_enabled,
+                "next_run": local_time(next_run.isoformat()) if next_run else None,
+                "publish_enabled": settings.publish_enabled and settings.allow_external_writes,
                 "linkedin_connected": linkedin_connected(),
-                "user": request.session.get("user"),
-                "csrf_token": csrf_for(request),
                 "research_running": research_lock.locked(),
                 "research_notice": research if research in {"started", "already_running"} else "",
                 "queue": queue,
                 "queue_full": bool(queue) and all(status["full"] for status in queue.values()),
                 "x": x_status(),
                 "x_just_connected": x == "connected",
-            },
+                "north_star": settings.profile.get("identity", {}).get("identity_statement"),
+        })
+
+    @app.get("/drafts", response_class=HTMLResponse)
+    def drafts_inbox(request: Request, platform: str = "", view: str = "actionable", page: int = Query(1, ge=1, le=10_000)):
+        if redirect := require_user(request):
+            return redirect
+        platforms = settings.raw["drafting"].get("platforms", ["linkedin"])
+        platform = platform if platform in platforms else ""
+        views = {
+            "actionable": "Needs attention", "pending_approval": "Pending approval",
+            "approved": "Approved", "publish_failed": "Publish failed",
+            "published": "Published history", "rejected": "Rejected",
+        }
+        view = view if view in views else "actionable"
+        size = 12
+        rows = database.list_drafts(
+            statuses=ACTIONABLE if view == "actionable" else None,
+            status=view if view != "actionable" else None,
+            platform=platform, limit=size + 1, offset=(page - 1) * size,
+        )
+        return render_workspace(
+            request, "inbox.html", "drafts", drafts=rows[:size], platforms=platforms,
+            platform=platform, view=view, views=views, draft_sources=database.draft_sources([row.id for row in rows[:size]]),
+            pager=pager(page, len(rows) > size, platform=platform, view=view),
+        )
+
+    @app.get("/research", response_class=HTMLResponse)
+    def research_library(
+        request: Request, q: str = Query("", max_length=160), topic: str = "", source: str = "",
+        sort: str = "relevance", page: int = Query(1, ge=1, le=10_000),
+    ):
+        if redirect := require_user(request):
+            return redirect
+        topics, sources = database.research_filters()
+        topic = topic if topic in topics else ""
+        source = source if source in sources else ""
+        sort = "newest" if sort == "newest" else "relevance"
+        q = q.strip()
+        size = 15
+        rows = database.list_items(
+            query=q, topic=topic, source_type=source, newest=sort == "newest",
+            offset=(page - 1) * size, limit=size + 1,
+        )
+        return render_workspace(
+            request, "research.html", "research", items=rows[:size], q=q,
+            topic=topic, source=source, sort=sort, topics=topics, sources=sources,
+            pager=pager(page, len(rows) > size, q=q, topic=topic, source=source, sort=sort),
+        )
+
+    @app.get("/missions", response_class=HTMLResponse)
+    def missions_workspace(request: Request, status: str = "", page: int = Query(1, ge=1, le=10_000)):
+        if redirect := require_user(request):
+            return redirect
+        statuses = {"active": "In progress", "proposed": "Proposed", "completed": "Completed"}
+        status = status if status in statuses else ""
+        size = 10
+        rows = database.list_missions(status=status or None, limit=size + 1, offset=(page - 1) * size)
+        return render_workspace(
+            request, "missions.html", "missions", missions=rows[:size], status=status, statuses=statuses,
+            pager=pager(page, len(rows) > size, status=status),
+        )
+
+    @app.get("/brand", response_class=HTMLResponse)
+    def brand_workspace(request: Request):
+        if redirect := require_user(request):
+            return redirect
+        now = datetime.now(local_zone)
+        monday = week_start(now)
+        weekly = database.published_breakdown_since(monday.astimezone(timezone.utc).isoformat())
+        recent = database.published_breakdown_since((now - timedelta(days=28)).astimezone(timezone.utc).isoformat())
+        content = settings.profile.get("content", {})
+        targets = content.get("weekly_post_targets", {})
+        topics = {topic: target for topic, target in content.get("pillars", {}).items()}
+        for _, topic, _ in recent:
+            topics.setdefault(topic, 0)
+        total = sum(count for _, _, count in recent)
+        return render_workspace(
+            request, "brand.html", "brand", identity=settings.profile.get("identity", {}),
+            voice=settings.profile.get("voice", {}), audience=settings.profile.get("audience", {}),
+            cadence=[
+                (platform, targets.get(platform), sum(count for key, _, count in weekly if key == platform))
+                for platform in settings.raw["drafting"].get("platforms", ["linkedin"])
+            ],
+            pillars=[
+                (topic, target, count, round(100 * count / total) if total else None)
+                for topic, target in topics.items()
+                for count in [sum(number for _, key, number in recent if key == topic)]
+            ],
+            total=total, monday=monday.strftime("%d %b"),
         )
 
     @app.post("/pipeline/run")
@@ -336,6 +453,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         item = database.get_item(brief.item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Research item not found")
+        audience, personal_prompt = draft_angle(item.topic)
         return templates.TemplateResponse(
             request=request,
             name="draft.html",
@@ -343,10 +461,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "draft": draft,
                 "brief": brief,
                 "item": item,
+                "audience_hint": audience,
+                "personal_prompt": personal_prompt,
+                "brand_goal": settings.profile.get("identity", {}).get("archetype"),
+                "feedback": database.post_feedback(draft_id) if draft.status == "published" else None,
+                "feedback_saved": request.query_params.get("feedback") == "saved",
                 "claims": database.list_claims(item.id),
                 "linkedin_preview": BOLD.sub(lambda match: unicode_bold(match.group(1)), draft.body),
                 "card": json.loads(draft.card_json) if draft.card_json else None,
-                "publish_enabled": settings.publish_enabled,
+                "publish_enabled": settings.publish_enabled and settings.allow_external_writes,
                 "linkedin_connected": linkedin_connected(),
                 "x": x_status(),
                 "x_problem": x_text_problem(draft.body, include_link=x_include_link(settings)) if draft.platform == "x" else None,
@@ -364,6 +487,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not card:
             raise HTTPException(status_code=404, detail="No image for this draft")
         return Response(content=render_image(card), media_type="image/png", headers={"Cache-Control": "private, max-age=60"})
+
+    @app.post("/drafts/{draft_id}/feedback")
+    def save_post_feedback(
+        request: Request, draft_id: str, impressions: int | None = Form(None, ge=0, le=2_000_000_000),
+        comments: int | None = Form(None, ge=0, le=2_000_000_000),
+        conversations: int | None = Form(None, ge=0, le=2_000_000_000),
+        note: str = Form("", max_length=1200), csrf_token: str = Form(""),
+    ):
+        if redirect := require_user(request):
+            return redirect
+        require_csrf(request, csrf_token)
+        draft = database.get_draft(draft_id)
+        if not draft:
+            raise HTTPException(status_code=404, detail="Draft not found")
+        if draft.status != "published":
+            raise HTTPException(status_code=409, detail="Feedback is only available for published posts")
+        if all(value is None for value in (impressions, comments, conversations)) and not note.strip():
+            raise HTTPException(status_code=400, detail="Add at least one observation")
+        database.log_event("post_feedback", "draft", draft_id, {
+            "impressions": impressions, "comments": comments, "conversations": conversations, "note": note.strip(),
+        })
+        return RedirectResponse(f"/drafts/{draft_id}?feedback=saved#feedback", status_code=303)
 
     @app.post("/drafts/{draft_id}/card")
     def toggle_draft_card(request: Request, draft_id: str, enabled: str = Form("false"), csrf_token: str = Form("")):
@@ -427,10 +572,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"understood": True, "checked_claims": True, "represents_me": True},
         )
         draft = database.get_draft(draft_id)
-        # X posts go out on approval only once X is connected; otherwise the
-        # approved draft waits for "Publish approved text".
-        can_post = draft and (draft.platform == "linkedin" or (draft.platform == "x" and x_status()["username"]))
-        if can_post and settings.publish_enabled:
+        # A disconnected platform leaves the exact approved copy ready to retry.
+        if settings.publish_enabled and settings.allow_external_writes and draft and (
+            linkedin_connected() if draft.platform == "linkedin" else x_status()["username"]
+        ):
             publish_now(draft)
         return RedirectResponse(url=f"/drafts/{draft_id}", status_code=303)
 
@@ -497,7 +642,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return redirect
         require_csrf(request, csrf_token)
         database.set_mission_status(mission_id, "active")
-        return RedirectResponse(url="/", status_code=303)
+        return RedirectResponse(url="/missions", status_code=303)
 
     @app.post("/missions/{mission_id}/complete")
     def complete_mission(
@@ -513,7 +658,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if len(reflection.strip()) < 40:
             raise HTTPException(status_code=400, detail="Add a meaningful reflection before completion.")
         database.set_mission_status(mission_id, "completed", reflection=reflection)
-        return RedirectResponse(url="/", status_code=303)
+        return RedirectResponse(url="/missions", status_code=303)
 
     @app.get("/api/health")
     def health() -> dict[str, object]:

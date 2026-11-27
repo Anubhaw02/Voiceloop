@@ -1,0 +1,15 @@
+<nav class="topbar" aria-label="Workspace">
+  <a class="wordmark" href="/" aria-label="Frontier Brand Agent home" {% if section == 'home' %}aria-current="page"{% endif %}>
+    <span class="wordmark-mark" aria-hidden="true">F</span><span>Frontier</span>
+  </a>
+  <div class="nav-links">
+    {% for key, path, label in [('drafts', '/drafts', 'Drafts'), ('research', '/research', 'Research'), ('missions', '/missions', 'Missions'), ('brand', '/brand', 'Brand'), ('activity', '/#activity', 'Activity')] %}
+    <a href="{{ path }}" {% if section == key %}aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </div>
+  {% if user %}
+  <form method="post" action="/auth/logout">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="text-button" type="submit">Sign out</button>
+  </form>
+  {% endif %}
+</nav>

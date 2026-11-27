@@ -1,0 +1,20 @@
+{% extends "workspace_base.html" %}
+{% from "workspace_components.html" import draft_card, pagination %}
+{% block title %}Drafts · Frontier Brand Agent{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <p class="eyebrow">APPROVAL INBOX</p><h1>Drafts</h1>
+  <p class="subtitle">Review a draft to verify its wording and evidence. Published posts are kept in history.</p>
+</header>
+<section class="panel">
+  <div class="panel-heading"><h2>{{ views[view] }}</h2><a href="/drafts?view=published" class="button compact">Published history</a></div>
+  <form class="filter-bar" method="get" action="/drafts">
+    <label>Platform<select name="platform"><option value="">All platforms</option>{% for key in platforms %}<option value="{{ key }}" {% if platform == key %}selected{% endif %}>{{ key|platform_label }}</option>{% endfor %}</select></label>
+    <label>Status<select name="view">{% for key, label in views.items() %}<option value="{{ key }}" {% if view == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <button class="button" type="submit">Apply filters</button>
+  </form>
+  {% if drafts %}<div class="draft-grid">{% for draft in drafts %}{{ draft_card(draft, draft_sources.get(draft.id), true) }}{% endfor %}</div>
+  {% else %}<p class="empty compact">No posts match these filters.</p>{% endif %}
+  {{ pagination(pager) }}
+</section>
+{% endblock %}

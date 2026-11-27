@@ -134,4 +134,6 @@ scheduler:
   enabled: true
   interval_hours: 12
   run_on_start: true
+  # Displayed in the hosted dashboard; keep in sync with daily-agent.yml.
+  cloud_daily_times: ["08:17", "14:17"]
 

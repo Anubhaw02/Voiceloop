@@ -387,6 +387,10 @@ def test_full_x_queue_does_not_block_linkedin_drafts(tmp_path: Path, monkeypatch
     assert database.get_draft_for_brief(new_brief.id, "x") is None
     assert database.pending_draft_count("x") == 1
     assert database.pending_draft_count("linkedin") == 1
+    recorded = json.loads(database.recent_runs(limit=1)[0]["summary_json"])
+    assert recorded["drafts_by_platform"] == {"linkedin": 1, "x": 0}
+    assert recorded["full_queues_at_start"] == ["x"]
+    assert recorded["already_covered"] == 1
 
 
 def test_long_x_draft_is_trimmed_at_sentence_boundary():

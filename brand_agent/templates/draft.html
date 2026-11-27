@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ draft.title }} · Frontier Brand Agent</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=workspace-2">
 </head>
 <body>
   <main class="shell detail-shell">
-    <nav class="detail-nav"><a class="back" href="/">Back to dashboard</a><span>Review {{ 'X' if draft.platform == 'x' else 'LinkedIn' }} draft</span></nav>
+    <nav class="detail-nav" aria-label="Draft navigation"><a class="back" href="/drafts{% if draft.status == 'published' %}?view=published{% endif %}">Back to {{ 'published history' if draft.status == 'published' else 'draft inbox' }}</a><a class="text-button" href="/">Dashboard</a></nav>
 
     <header class="detail-header">
       <div class="card-meta"><span class="badge {{ draft.platform }}">{{ draft.platform }}</span><span class="status {{ draft.status }}">{{ draft.status.replace('_', ' ') }}</span><span>Risk: {{ draft.risk_level }}</span></div>
@@ -17,9 +17,12 @@
 
     {% set platform_name = 'X' if draft.platform == 'x' else 'LinkedIn' %}
     {% if draft.publish_error %}<section class="error-banner"><strong>{{ platform_name }} publishing failed.</strong> {{ draft.publish_error }}</section>{% endif %}
-    {% if draft.status == 'published' %}<section class="success-banner"><strong>Published successfully.</strong> {% if draft.platform == 'x' %}<a href="https://x.com/i/web/status/{{ draft.external_post_id }}" target="_blank" rel="noreferrer">View on X</a>{% else %}<a href="https://www.linkedin.com/feed/update/{{ draft.external_post_id }}/" target="_blank" rel="noreferrer">View on LinkedIn</a>{% endif %}</section>{% endif %}
+    {% if draft.status == 'published' %}<section class="success-banner"><strong>Published successfully.</strong> {% if draft.external_post_id %}{% if draft.platform == 'x' %}<a href="https://x.com/i/web/status/{{ draft.external_post_id }}" target="_blank" rel="noreferrer">View on X</a>{% else %}<a href="https://www.linkedin.com/feed/update/{{ draft.external_post_id }}/" target="_blank" rel="noreferrer">View on LinkedIn</a>{% endif %}{% endif %}</section>{% endif %}
     {% if x_problem and draft.status not in ['published'] %}<section class="error-banner"><strong>Fix before posting:</strong> {{ x_problem }}</section>{% endif %}
     {% if draft.platform == 'x' and publish_enabled and not x.username %}<section class="notice-bar">X is not connected. Approval records your decision; connect X on the dashboard before publishing.</section>{% endif %}
+    {% if draft.platform == 'linkedin' and publish_enabled and not linkedin_connected and draft.status in ['pending_approval', 'rejected', 'approved', 'publish_failed'] %}
+    <section class="notice-bar">LinkedIn needs to be connected before publishing. Approval saves the exact text. <a href="/auth/linkedin/login">Reconnect LinkedIn</a></section>
+    {% endif %}
 
     {% if draft.status in ['pending_approval', 'rejected'] %}
     <form method="post" class="review-form">
@@ -27,20 +30,18 @@
       <section class="review-layout">
         <article class="panel compose-panel">
           <div class="panel-heading"><div><p class="eyebrow">EXACT PUBLIC TEXT</p><h2>Edit the post</h2></div><span class="count-pill">{{ draft.body|length }} characters</span></div>
-          <textarea name="body" rows="22" spellcheck="true" aria-label="Exact post text">{{ draft.body }}</textarea>
+          <textarea name="body" rows="18" spellcheck="true" aria-label="Exact post text">{{ draft.body }}</textarea>
+          <p class="section-note"><strong>Make it yours:</strong> {{ personal_prompt }} Add only what you actually know or have done.</p>
           {% if draft.platform == 'linkedin' %}
           <details class="inline-disclosure"><summary>Preview LinkedIn formatting</summary><div class="linkedin-preview">{{ linkedin_preview }}</div><small>Bold markup is converted when published. Save an edit to refresh this preview.</small></details>
           {% endif %}
         </article>
 
         <aside class="review-sidebar">
-          <section class="panel brand-fit-panel">
-            <p class="eyebrow">WHY THIS FITS YOU</p><h2>Brand rationale</h2><p>{{ draft.rationale }}</p>
-            <div class="reader-value"><strong>What the reader gets</strong><p>{{ brief.contribution }}</p></div>
-          </section>
           <section class="panel decision-panel">
             <p class="eyebrow">YOUR DECISION</p><h2>Approve with judgment</h2>
-            <p class="publish-impact">{% if draft.platform == 'linkedin' and publish_enabled %}Approval publishes this exact text immediately to your LinkedIn profile.{% elif draft.platform == 'x' and publish_enabled and x.username %}Approval posts this exact text immediately to X as {{ x.username }}.{% else %}Approval records this exact version. External publishing is currently unavailable.{% endif %}</p>
+            <p class="publish-impact">{% if draft.platform == 'linkedin' and publish_enabled and linkedin_connected %}Approval publishes this exact text immediately to your LinkedIn profile.{% elif draft.platform == 'x' and publish_enabled and x.username %}Approval posts this exact text immediately to X as {{ x.username }}.{% else %}Approval records this exact version. External publishing is currently unavailable.{% endif %}</p>
+            <div class="review-links"><a href="#evidence">Check source and claims</a>{% if card and card.enabled %}<a href="#post-image">Review attached image</a>{% endif %}</div>
             <fieldset class="approval-checklist">
               <legend>Confirm before approval</legend>
               <label><input type="checkbox" name="understood" value="true" required> I understand the argument.</label>
@@ -48,10 +49,17 @@
               <label><input type="checkbox" name="represents_me" value="true" required> This represents my view and voice.</label>
             </fieldset>
             <div class="decision-actions">
-              <button class="button approve" formaction="/drafts/{{ draft.id }}/approve">{% if draft.platform == 'linkedin' and publish_enabled %}Approve &amp; publish to LinkedIn{% elif draft.platform == 'x' and publish_enabled and x.username %}Approve &amp; post to X{% else %}Approve exact text{% endif %}</button>
               <button class="button" formnovalidate formaction="/drafts/{{ draft.id }}/save">Save edit</button>
+              <button class="button approve" formaction="/drafts/{{ draft.id }}/approve">{% if draft.platform == 'linkedin' and publish_enabled and linkedin_connected %}Approve &amp; publish to LinkedIn{% elif draft.platform == 'x' and publish_enabled and x.username %}Approve &amp; post to X{% else %}Approve exact text{% endif %}</button>
             </div>
             <div class="reject-control"><label for="reason">If it is not right</label><input id="reason" name="reason" value="Needs revision"><button class="text-button danger" formnovalidate formaction="/drafts/{{ draft.id }}/reject">Reject draft</button></div>
+          </section>
+          <section class="panel brand-fit-panel">
+            <p class="eyebrow">WHY THIS FITS YOU</p><h2>{{ item.topic|pillar_label }}</h2>
+            {% if brand_goal %}<p class="section-note">Supports your goal of becoming <strong>{{ brand_goal }}</strong>.</p>{% endif %}
+            <p><strong>Suggested audience:</strong> {{ audience_hint }}</p>
+            <div class="reader-value"><strong>What the reader gets</strong><p>{{ brief.contribution }}</p></div>
+            <details class="inline-disclosure"><summary>Why it was selected</summary><p>{{ draft.rationale }}</p></details>
           </section>
         </aside>
       </section>
@@ -64,16 +72,35 @@
     {% endif %}
 
     {% if card %}
-    <section class="panel media-panel">
+    <section class="panel media-panel" id="post-image">
       <div><p class="eyebrow">POST IMAGE</p><h2>{{ 'Attached to this post' if card.enabled else 'Image turned off' }}</h2>{% if card.enabled %}<img class="card-preview" src="/drafts/{{ draft.id }}/card.png" alt="Post image: {{ card.title or card.headline }}">{% else %}<p class="section-note">This post will publish as text only.</p>{% endif %}</div>
       {% if draft.status not in ['publishing', 'published'] %}<form method="post" action="/drafts/{{ draft.id }}/card"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="enabled" value="{{ 'false' if card.enabled else 'true' }}"><button class="button" type="submit">{{ "Post without image" if card.enabled else "Attach image again" }}</button></form>{% endif %}
     </section>
     {% endif %}
 
-    {% if draft.status in ['approved', 'publish_failed'] and publish_enabled and (draft.platform == 'linkedin' or x.username) %}<form class="standalone-action" method="post" action="/drafts/{{ draft.id }}/publish"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button approve" type="submit">{% if draft.status == 'publish_failed' %}Retry {{ platform_name }} publish{% else %}Publish approved text to {{ platform_name }}{% endif %}</button></form>{% endif %}
+    {% if draft.status in ['approved', 'publish_failed'] and publish_enabled and (linkedin_connected if draft.platform == 'linkedin' else x.username) %}<form class="standalone-action" method="post" action="/drafts/{{ draft.id }}/publish"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button approve" type="submit">{% if draft.status == 'publish_failed' %}Retry {{ platform_name }} publish{% else %}Publish approved text to {{ platform_name }}{% endif %}</button></form>{% endif %}
     {% if draft.status in ['approved', 'exported', 'published'] %}<form class="standalone-action" method="post" action="/drafts/{{ draft.id }}/export"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button" type="submit">Export local copy</button></form>{% endif %}
 
-    <section class="evidence-section">
+    {% if draft.status == 'published' %}
+    <section class="panel" id="feedback">
+      <div class="panel-heading"><div><p class="eyebrow">PRIVATE POST FEEDBACK</p><h2>What happened after publishing?</h2></div></div>
+      <p class="section-note">Enter what you see on {{ platform_name }}. Leave unknown metrics blank. Your notes are not published or used to rewrite this post.</p>
+      {% if feedback_saved and feedback %}<p class="success-banner" role="status">Feedback saved.</p>{% endif %}
+      <form action="/drafts/{{ draft.id }}/feedback" method="post" class="feedback-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="filter-bar">
+          {% for key, label in [('impressions', 'Impressions'), ('comments', 'Comments'), ('conversations', 'Useful conversations')] %}
+          <label>{{ label }}<input name="{{ key }}" type="number" min="0" max="2000000000" value="{{ feedback[key] if feedback and feedback[key] is not none else '' }}"></label>
+          {% endfor %}
+        </div>
+        <label for="feedback-note">What worked, or what would you change?</label>
+        <textarea id="feedback-note" name="note" rows="3" maxlength="1200">{{ feedback.note if feedback else '' }}</textarea>
+        <div class="card-footer"><small>{% if feedback %}Last saved {{ feedback.recorded_at|local_time }}{% endif %}</small><button class="button" type="submit">Save feedback</button></div>
+      </form>
+    </section>
+    {% endif %}
+
+    <section class="evidence-section" id="evidence">
       <div class="panel-heading"><div><p class="eyebrow">EVIDENCE BEHIND THE POST</p><h2>Verify before you represent it</h2></div><a class="button compact" href="{{ item.url }}" target="_blank" rel="noreferrer">Open original source</a></div>
       <div class="evidence-grid">
         <section class="panel evidence-panel source-panel"><p class="eyebrow">SOURCE</p><h3><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.title }}</a></h3><dl><dt>Publisher</dt><dd>{{ item.source_name }}</dd><dt>Status</dt><dd>{{ item.publication_status.replace('_', ' ') }}</dd><dt>Relevance</dt><dd>{{ "%.1f"|format(item.score) }}/100</dd><dt>Topic</dt><dd>{{ item.topic.replace('_', ' ') }}</dd><dt>Industry</dt><dd>{{ item.industry.replace('_', ' ') }}</dd></dl></section>

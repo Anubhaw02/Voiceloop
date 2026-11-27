@@ -253,6 +253,7 @@ class Database:
         brief_count: int,
         draft_count: int,
         errors: list[str],
+        summary: dict[str, Any] | None = None,
     ) -> None:
         with self.engine.begin() as connection:
             connection.execute(
@@ -268,6 +269,11 @@ class Database:
                     errors_json=json.dumps(errors),
                 )
             )
+            if summary is not None:
+                connection.execute(audit_log.insert().values(
+                    event_type="research_run_summary", entity_type="run", entity_id=run_id,
+                    detail_json=json.dumps(summary), created_at=utc_now(),
+                ))
 
     def upsert_item(self, item: ResearchItem) -> bool:
         now = utc_now()
@@ -374,19 +380,45 @@ class Database:
         limit: int = 50,
         minimum_score: float = 0,
         include_quarantined: bool = False,
+        query: str = "",
+        topic: str = "",
+        source_type: str = "",
+        newest: bool = False,
+        offset: int = 0,
     ) -> list[ResearchItem]:
         conditions = [research_items.c.score >= minimum_score]
         if not include_quarantined:
             conditions.append(research_items.c.status != "quarantined")
+        if topic:
+            conditions.append(research_items.c.topic == topic)
+        if source_type:
+            conditions.append(research_items.c.source_type == source_type)
+        if query:
+            conditions.append(
+                func.lower(research_items.c.title).contains(query.lower(), autoescape=True)
+                | func.lower(research_items.c.abstract).contains(query.lower(), autoescape=True)
+            )
+        date_order = desc(research_items.c.published_at).nulls_last()
+        order = (date_order, desc(research_items.c.score)) if newest else (desc(research_items.c.score), date_order)
         statement = (
             select(research_items)
             .where(and_(*conditions))
-            .order_by(desc(research_items.c.score), desc(research_items.c.published_at))
+            .order_by(*order, research_items.c.id)
             .limit(limit)
+            .offset(offset)
         )
         with self.engine.connect() as connection:
             rows = connection.execute(statement).mappings().all()
         return [self._item_from_row(row) for row in rows]
+
+    def research_filters(self) -> tuple[list[str], list[str]]:
+        def options(connection, column):
+            return list(connection.scalars(select(column).where(
+                research_items.c.status != "quarantined"
+            ).distinct().order_by(column)))
+
+        with self.engine.connect() as connection:
+            return options(connection, research_items.c.topic), options(connection, research_items.c.source_type)
 
     def save_brief(self, brief: ResearchBrief) -> None:
         values = {
@@ -577,6 +609,8 @@ class Database:
         status: str | None = None,
         statuses: list[str] | None = None,
         limit: int = 100,
+        platform: str = "",
+        offset: int = 0,
     ) -> list[ContentDraft]:
         if status and statuses:
             raise ValueError("Use either status or statuses, not both")
@@ -585,10 +619,29 @@ class Database:
             statement = statement.where(drafts.c.status == status)
         elif statuses:
             statement = statement.where(drafts.c.status.in_(statuses))
-        statement = statement.order_by(desc(drafts.c.created_at)).limit(limit)
+        if platform:
+            statement = statement.where(drafts.c.platform == platform)
+        order = func.coalesce(drafts.c.published_at, drafts.c.updated_at) if status == "published" else drafts.c.created_at
+        statement = statement.order_by(desc(order), drafts.c.id).limit(limit).offset(offset)
         with self.engine.connect() as connection:
             rows = connection.execute(statement).mappings().all()
         return [self._draft_from_row(row) for row in rows]
+
+    def draft_counts_by_platform(self, statuses: list[str]) -> dict[str, int]:
+        statement = select(drafts.c.platform, func.count()).where(
+            drafts.c.status.in_(statuses)
+        ).group_by(drafts.c.platform)
+        with self.engine.connect() as connection:
+            return dict(connection.execute(statement).all())
+
+    def draft_sources(self, draft_ids: list[str]) -> dict[str, dict[str, str]]:
+        if not draft_ids:
+            return {}
+        statement = select(
+            drafts.c.id, research_items.c.source_name, research_items.c.publication_status
+        ).select_from(drafts.join(research_briefs).join(research_items)).where(drafts.c.id.in_(draft_ids))
+        with self.engine.connect() as connection:
+            return {row["id"]: dict(row) for row in connection.execute(statement).mappings()}
 
     def drafted_platforms_by_item(self) -> dict[str, set[str]]:
         statement = select(research_briefs.c.item_id, drafts.c.platform).select_from(
@@ -766,12 +819,12 @@ class Database:
             updated_at=row["updated_at"],
         )
 
-    def list_missions(self, *, status: str | None = None, limit: int = 20) -> list[ResearchMission]:
+    def list_missions(self, *, status: str | None = None, limit: int = 20, offset: int = 0) -> list[ResearchMission]:
         statement = select(missions)
         if status:
             statement = statement.where(missions.c.status == status)
         priority = case((missions.c.status == "active", 0), (missions.c.status == "proposed", 1), else_=2)
-        statement = statement.order_by(priority, missions.c.due_at, desc(missions.c.created_at)).limit(limit)
+        statement = statement.order_by(priority, missions.c.due_at, desc(missions.c.created_at), missions.c.id).limit(limit).offset(offset)
         with self.engine.connect() as connection:
             rows = connection.execute(statement).mappings().all()
         return [self._mission_from_row(row) for row in rows]
@@ -897,9 +950,35 @@ class Database:
                 or 0
             )
 
+    def published_breakdown_since(self, since: str) -> list[tuple[str, str, int]]:
+        statement = (
+            select(drafts.c.platform, research_items.c.topic, func.count())
+            .select_from(drafts.join(research_briefs).join(research_items))
+            .where(drafts.c.status == "published", drafts.c.published_at >= since)
+            .group_by(drafts.c.platform, research_items.c.topic)
+        )
+        with self.engine.connect() as connection:
+            return [(platform, topic, count) for platform, topic, count in connection.execute(statement)]
+
+    def post_feedback(self, draft_id: str) -> dict[str, Any] | None:
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(audit_log.c.detail_json, audit_log.c.created_at)
+                .where(audit_log.c.event_type == "post_feedback", audit_log.c.entity_id == draft_id)
+                .order_by(desc(audit_log.c.id)).limit(1)
+            ).first()
+        return {**json.loads(row.detail_json), "recorded_at": row.created_at} if row else None
+
     def recent_runs(self, *, limit: int = 10) -> list[dict[str, Any]]:
+        summary = (
+            select(audit_log.c.detail_json)
+            .where(audit_log.c.event_type == "research_run_summary", audit_log.c.entity_id == pipeline_runs.c.id)
+            .order_by(desc(audit_log.c.id)).limit(1)
+            .scalar_subquery()
+        )
         with self.engine.connect() as connection:
             rows = connection.execute(
-                select(pipeline_runs).order_by(desc(pipeline_runs.c.started_at)).limit(limit)
+                select(pipeline_runs, summary.label("summary_json"))
+                .order_by(desc(pipeline_runs.c.started_at)).limit(limit)
             ).mappings().all()
         return [dict(row) for row in rows]
